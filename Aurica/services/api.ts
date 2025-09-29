@@ -1,7 +1,9 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-const API_BASE_URL = 'https://9afb717b45ca.ngrok-free.app'; // Django development server URL
+const API_BASE_URL = 'https://1103e09335a9.ngrok-free.app'; // Django development server URL
+
+import { offlineQueueManager } from './offlineQueueManager';
 
 export interface LoginCredentials {
   username: string;
@@ -272,8 +274,32 @@ class ApiService {
     }
   }
 
-  // Update measure data for a stakeholder variable
-  async updateMeasureData(measureData: MeasureData): Promise<{ success: boolean; error?: string }> {
+  // Update measure data for a stakeholder variable with offline support
+  async updateMeasureData(measureData: MeasureData, isOnline: boolean = true): Promise<{ success: boolean; error?: string; queued?: boolean }> {
+    // If offline, queue the update
+    if (true) {
+      try {
+        const queueId = await offlineQueueManager.queueUpdate(measureData);
+        return { 
+          success: true, 
+          error: undefined, 
+          queued: true 
+        };
+      } catch (error) {
+        console.error('Failed to queue update:', error);
+        return { 
+          success: false, 
+          error: 'Failed to save update offline. Please try again.' 
+        };
+      }
+    }
+
+    // If online, proceed with normal API call
+    return this.updateMeasureDataOnline(measureData);
+  }
+
+  // Update measure data for a stakeholder variable (online only)
+  async updateMeasureDataOnline(measureData: MeasureData): Promise<{ success: boolean; error?: string }> {
     const maxRetries = 2;
     let lastError: any = null;
 

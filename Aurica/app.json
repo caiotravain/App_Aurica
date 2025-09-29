@@ -64,7 +64,8 @@
           "savePhotosPermission": "Este app precisa salvar fotos na galeria.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { apiService, StakeholderVariable, MeasureData } from '../services/api';
+import { useNetwork } from '../contexts/NetworkContext';
+import { apiService, MeasureData, StakeholderVariable } from '../services/api';
 import { PhotoPicker } from './PhotoPickerExpoGo';
 
 interface VariableFormProps {
@@ -25,6 +26,7 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
   const [fileDescription, setFileDescription] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<{ uri: string; type: string; name: string } | undefined>();
   const [isLoading, setIsLoading] = useState(false);
+  const { isOnline } = useNetwork();
 
   const getCurrentDate = () => {
     const today = new Date();
@@ -58,19 +60,32 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
         photo: selectedPhoto,
       };
 
-      const result = await apiService.updateMeasureData(measureData);
+      const result = await apiService.updateMeasureData(measureData, isOnline);
 
       if (result.success) {
-        Alert.alert(
-          'Sucesso',
-          'Medida adicionada com sucesso!',
-          [
-            {
-              text: 'OK',
-              onPress: onSuccess,
-            },
-          ]
-        );
+        if (result.queued) {
+          Alert.alert(
+            'Salvo Offline',
+            'Medida salva localmente e será enviada quando a conexão for restaurada.',
+            [
+              {
+                text: 'OK',
+                onPress: onSuccess,
+              },
+            ]
+          );
+        } else {
+          Alert.alert(
+            'Sucesso',
+            'Medida adicionada com sucesso!',
+            [
+              {
+                text: 'OK',
+                onPress: onSuccess,
+              },
+            ]
+          );
+        }
       } else {
         Alert.alert('Erro', result.error || 'Falha ao adicionar medida');
       }
@@ -109,40 +124,18 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
             <Text style={styles.infoLabel}>Variável:</Text>
             <Text style={styles.infoValue}>{variable.indicator_variable.variable}</Text>
           </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Indicador:</Text>
-            <Text style={styles.infoValue}>{variable.indicator_variable.indicator.title}</Text>
-          </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>SDG:</Text>
-            <Text style={styles.infoValue}>
-              SDG {variable.indicator_variable.indicator.sdg.sdg_number}: {variable.indicator_variable.indicator.sdg.title}
-            </Text>
-          </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Unidade:</Text>
-            <Text style={styles.infoValue}>{variable.indicator_variable.unit || 'N/A'}</Text>
-          </View>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Tipo:</Text>
-            <Text style={styles.infoValue}>{variable.indicator_variable.response_type}</Text>
-          </View>
-          
+  
           {variable.current_value && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Valor Atual:</Text>
-              <Text style={styles.infoValue}>{variable.current_value}</Text>
+              <Text style={styles.infoValue}>{variable.current_value} {variable.indicator_variable.unit || ''}</Text>
             </View>
           )}
           
           {variable.target_value && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Valor Meta:</Text>
-              <Text style={styles.infoValue}>{variable.target_value}</Text>
+              <Text style={styles.infoValue}>{variable.target_value} {variable.indicator_variable.unit || ''}</Text>
             </View>
           )}
         </View>
@@ -207,32 +200,13 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
           />
         </View>
 
-        {/* Latest Data */}
-        {variable.latest_data && (
-          <View style={styles.latestDataCard}>
-            <Text style={styles.cardTitle}>Última Medida</Text>
-            
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Valor:</Text>
-              <Text style={styles.infoValue}>{variable.latest_data.value}</Text>
-            </View>
-            
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Data:</Text>
-              <Text style={styles.infoValue}>{variable.latest_data.measurement_date}</Text>
-            </View>
-            
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Qualidade:</Text>
-              <Text style={styles.infoValue}>{variable.latest_data.data_quality}</Text>
-            </View>
-            
-            {variable.latest_data.file_description && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Descrição:</Text>
-                <Text style={styles.infoValue}>{variable.latest_data.file_description}</Text>
-              </View>
-            )}
+
+        {/* Offline Status */}
+        {!isOnline && (
+          <View style={styles.offlineStatus}>
+            <Text style={styles.offlineText}>
+              📱 Sem conexão - A medida será salva localmente
+            </Text>
           </View>
         )}
 
@@ -245,7 +219,9 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
           {isLoading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.submitButtonText}>Adicionar Medida</Text>
+            <Text style={styles.submitButtonText}>
+              {!isOnline ? 'Salvar Offline' : 'Adicionar Medida'}
+            </Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -283,16 +259,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
-    borderWidth: 1,
-    borderColor: '#e8f5e8',
-  },
-  latestDataCard: {
-    backgroundColor: '#f0f8f0',
-    borderRadius: 16,
-    padding: 24,
-    marginBottom: 20,
-    borderLeftWidth: 6,
-    borderLeftColor: '#2d6122', // Aurica main color
     borderWidth: 1,
     borderColor: '#e8f5e8',
   },
@@ -373,5 +339,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  offlineStatus: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffeaa7',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  offlineText: {
+    color: '#856404',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });
