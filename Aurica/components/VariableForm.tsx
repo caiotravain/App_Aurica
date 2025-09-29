@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { apiService, StakeholderVariable, MeasureData } from '../services/api';
+import { PhotoPicker } from './PhotoPickerExpoGo';
 
 interface VariableFormProps {
   variable: StakeholderVariable;
@@ -22,6 +23,7 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
   const [value, setValue] = useState('');
   const [measurementDate, setMeasurementDate] = useState('');
   const [fileDescription, setFileDescription] = useState('');
+  const [selectedPhoto, setSelectedPhoto] = useState<{ uri: string; type: string; name: string } | undefined>();
   const [isLoading, setIsLoading] = useState(false);
 
   const getCurrentDate = () => {
@@ -53,6 +55,7 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
         value: value.trim(),
         measurement_date: measurementDate,
         file_description: fileDescription.trim() || undefined,
+        photo: selectedPhoto,
       };
 
       const result = await apiService.updateMeasureData(measureData);
@@ -82,6 +85,14 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('pt-BR');
+  };
+
+  const handlePhotoSelected = (photo: { uri: string; type: string; name: string }) => {
+    setSelectedPhoto(photo);
+  };
+
+  const handlePhotoRemoved = () => {
+    setSelectedPhoto(undefined);
   };
 
   return (
@@ -186,6 +197,14 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
               editable={!isLoading}
             />
           </View>
+
+          {/* Photo Picker */}
+          <PhotoPicker
+            onPhotoSelected={handlePhotoSelected}
+            onPhotoRemoved={handlePhotoRemoved}
+            selectedPhoto={selectedPhoto}
+            disabled={isLoading}
+          />
         </View>
 
         {/* Latest Data */}

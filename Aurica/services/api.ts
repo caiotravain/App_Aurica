@@ -1,7 +1,7 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-const API_BASE_URL = 'http://bc1ebe247967.ngrok-free.app'; // Django development server URL
+const API_BASE_URL = 'https://9afb717b45ca.ngrok-free.app'; // Django development server URL
 
 export interface LoginCredentials {
   username: string;
@@ -63,6 +63,11 @@ export interface MeasureData {
   value: string;
   measurement_date: string;
   file_description?: string;
+  photo?: {
+    uri: string;
+    type: string;
+    name: string;
+  };
 }
 
 class ApiService {
@@ -269,47 +274,111 @@ class ApiService {
 
   // Update measure data for a stakeholder variable
   async updateMeasureData(measureData: MeasureData): Promise<{ success: boolean; error?: string }> {
-    try {
-      // First, get the CSRF token
-      const csrfToken = await this.getCSRFToken();
-      
-      if (!csrfToken) {
-        return {
-          success: false,
-          error: 'Unable to get security token. Please refresh and try again.',
-        };
-      }
+    const maxRetries = 2;
+    let lastError: any = null;
 
-      const formData = new FormData();
-      formData.append('stakeholder_variable', measureData.stakeholder_variable_id.toString());
-      formData.append('value', measureData.value);
-      formData.append('measurement_date', measureData.measurement_date);
-      formData.append('csrfmiddlewaretoken', csrfToken);
-      if (measureData.file_description) {
-        formData.append('file_description', measureData.file_description);
-      }
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Update measure data attempt ${attempt}/${maxRetries}`);
+        
+        // First, get the CSRF token
+        const csrfToken = await this.getCSRFToken();
+        
+        if (!csrfToken) {
+          return {
+            success: false,
+            error: 'Unable to get security token. Please refresh and try again.',
+          };
+        }
 
-      const response = await fetch(`${this.baseURL}/update-data/`, {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRFToken': csrfToken,
-        },
-      });
+        const formData = new FormData();
+        formData.append('stakeholder_variable', measureData.stakeholder_variable_id.toString());
+        formData.append('value', measureData.value);
+        formData.append('measurement_date', measureData.measurement_date);
+        formData.append('csrfmiddlewaretoken', csrfToken);
+        
+        if (measureData.file_description) {
+          formData.append('file_description', measureData.file_description);
+        }
 
-      if (response.ok) {
-        const data = await response.json();
-        return { success: data.success, error: data.error };
-      } else {
-        const data = await response.json();
-        return { success: false, error: data.error || 'Failed to update measure data' };
+        // Add photo file if provided
+        if (measureData.photo) {
+          console.log('Uploading photo:', measureData.photo);
+          
+          // Create a proper file object for React Native
+          const photoFile = {
+            uri: measureData.photo.uri,
+            type: measureData.photo.type,
+            name: measureData.photo.name,
+          };
+          
+          // Append the photo file to FormData
+          formData.append('photo_file', photoFile as any);
+        }
+
+        // Add timeout for file uploads (longer timeout for retries)
+        const controller = new AbortController();
+        const timeoutDuration = attempt === 1 ? 60000 : 90000; // 60s first attempt, 90s retry
+        const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+        console.log(`Making request to ${this.baseURL}/update-data/`);
+        const response = await fetch(`${this.baseURL}/update-data/`, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrfToken,
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        console.log(`Response status: ${response.status}`);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Update successful:', data);
+          return { success: data.success, error: data.error };
+        } else {
+          const data = await response.json();
+          console.log('Update failed:', data);
+          return { success: false, error: data.error || 'Failed to update measure data' };
+        }
+      } catch (error) {
+        lastError = error;
+        console.error(`Update measure data error (attempt ${attempt}):`, error);
+        
+        // If this is not the last attempt, wait a bit before retrying
+        if (attempt < maxRetries) {
+          console.log(`Retrying in 2 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
+        }
       }
-    } catch (error) {
-      console.error('Update measure data error:', error);
-      return { success: false, error: 'Network error. Please check your connection.' };
     }
+
+    // If we get here, all retries failed
+    console.error('All retry attempts failed. Last error:', lastError);
+    
+    if (lastError && lastError.name === 'AbortError') {
+      return { success: false, error: 'Upload timeout. The image may be too large. Please try with a smaller image.' };
+    }
+    
+    if (lastError && lastError.message && lastError.message.includes('Network request failed')) {
+      return { success: false, error: 'Network error. Please check your connection and try again.' };
+    }
+    
+    if (lastError && lastError.message && lastError.message.includes('fetch')) {
+      return { success: false, error: 'Connection error. Please check your internet connection and try again.' };
+    }
+    
+    // Handle specific network errors
+    if (lastError && lastError.message && (lastError.message.includes('timeout') || lastError.message.includes('TIMEOUT'))) {
+      return { success: false, error: 'Request timeout. Please try again with a smaller image.' };
+    }
+    
+    return { success: false, error: 'Network error. Please check your connection and try again.' };
   }
 }
 
