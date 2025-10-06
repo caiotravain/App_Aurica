@@ -1,7 +1,7 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-const API_BASE_URL = 'https://www.appaurica.one/'; // Django development server URL
+const API_BASE_URL = 'https://appaurica.one'; // Django development server URL
 
 import { offlineQueueManager } from './offlineQueueManager';
 
@@ -85,15 +85,42 @@ class ApiService {
       const response = await fetch(`${this.baseURL}/login/`, {
         method: 'GET',
         credentials: 'include',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (compatible; ReactNative/1.0)',
+          'Referer': this.baseURL,
+        },
       });
+      console.log('CSRF token response status:', response.status);
+      console.log('CSRF token response headers:', Object.fromEntries(response.headers.entries()));
       
       if (response.ok) {
         const html = await response.text();
-        // Extract CSRF token from the HTML form
-        const csrfMatch = html.match(/name=['"]csrfmiddlewaretoken['"] value=['"]([^'"]+)['"]/);
-        return csrfMatch ? csrfMatch[1] : null;
+        console.log('CSRF token HTML length:', html.length);
+        
+        // Try multiple patterns to extract CSRF token
+        let csrfMatch = html.match(/name=['"]csrfmiddlewaretoken['"] value=['"]([^'"]+)['"]/);
+        if (!csrfMatch) {
+          csrfMatch = html.match(/csrfmiddlewaretoken['"] value=['"]([^'"]+)['"]/);
+        }
+        if (!csrfMatch) {
+          csrfMatch = html.match(/value=['"]([^'"]+)['"] name=['"]csrfmiddlewaretoken['"]/);
+        }
+        
+        if (csrfMatch) {
+          console.log('CSRF token found:', csrfMatch[1]);
+          return csrfMatch[1];
+        } else {
+          console.log('CSRF token not found in HTML');
+          console.log('HTML preview:', html.substring(0, 500));
+          return null;
+        }
+      } else {
+        console.log('Failed to fetch CSRF token, status:', response.status);
+        const errorText = await response.text();
+        console.log('Error response:', errorText);
+        return null;
       }
-      return null;
     } catch (error) {
       console.error('Error getting CSRF token:', error);
       return null;
@@ -103,20 +130,28 @@ class ApiService {
   // Login method that sends credentials to Django
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     try {
+      console.log('Starting login process for user:', credentials.username);
+      
       // First, get the CSRF token
       const csrfToken = await this.getCSRFToken();
       
       if (!csrfToken) {
+        console.log('Failed to get CSRF token');
         return {
           success: false,
           error: 'Unable to get security token. Please refresh and try again.',
         };
       }
 
+      console.log('CSRF token obtained, proceeding with login');
+
       const formData = new FormData();
       formData.append('username', credentials.username);
       formData.append('password', credentials.password);
       formData.append('csrfmiddlewaretoken', csrfToken);
+      formData.append('privacy_policy', 'on'); // Accept privacy policy
+
+      console.log('Sending login request to:', `${this.baseURL}/login/`);
 
       const response = await fetch(`${this.baseURL}/login/`, {
         method: 'POST',
@@ -125,32 +160,86 @@ class ApiService {
         headers: {
           'X-Requested-With': 'XMLHttpRequest', // Django expects this for AJAX requests
           'X-CSRFToken': csrfToken, // Include CSRF token in header
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (compatible; ReactNative/1.0)',
+          'Referer': this.baseURL,
         },
       });
 
+      console.log('Login response status:', response.status);
+      console.log('Login response headers:', Object.fromEntries(response.headers.entries()));
+      console.log('Login response URL:', response.url);
+
+      if (response.status === 403) {
+        const errorText = await response.text();
+        console.log('403 Forbidden response:', errorText);
+        return {
+          success: false,
+          error: 'Access forbidden. This might be a CSRF token issue. Please try again.',
+        };
+      }
+
       if (response.ok) {
-        // Check if we were redirected to home page (successful login)
-        const finalUrl = response.url;
-        if (finalUrl.includes('/') && !finalUrl.includes('/login/')) {
-          return {
-            success: true,
-            message: 'Login successful',
-          };
-        } else {
-          // Still on login page, check for error messages
-          const text = await response.text();
-          if (text.includes('Invalid username or password')) {
+        // Check if this is a JSON response (AJAX request)
+        const contentType = response.headers.get('content-type');
+        console.log('Response content type:', contentType);
+        
+        if (contentType && contentType.includes('application/json')) {
+          // Handle JSON response from Django
+          const data = await response.json();
+          console.log('JSON response data:', data);
+          
+          if (data.success) {
+            return {
+              success: true,
+              message: data.message || 'Login successful',
+            };
+          } else {
             return {
               success: false,
-              error: 'Invalid username or password',
+              error: data.error || 'Login failed',
             };
+          }
+        } else {
+          // Handle HTML response (fallback)
+          const finalUrl = response.url;
+          console.log('Final URL after login:', finalUrl);
+          
+          if (finalUrl.includes('/') && !finalUrl.includes('/login/')) {
+            return {
+              success: true,
+              message: 'Login successful',
+            };
+          } else {
+            // Still on login page, check for error messages
+            const text = await response.text();
+            console.log('Response text length:', text.length);
+            
+            if (text.includes('Invalid username or password')) {
+              return {
+                success: false,
+                error: 'Invalid username or password',
+              };
+            }
+            
+            // Check for other error messages
+            if (text.includes('CSRF')) {
+              return {
+                success: false,
+                error: 'Security token error. Please try again.',
+              };
+            }
           }
         }
       }
-
+      
+      console.log('Login response not ok, status:', response.status);
+      const errorText = await response.text();
+      console.log('Error response text:', errorText.substring(0, 500));
+      
       return {
         success: false,
-        error: 'Login failed. Please check your credentials.',
+        error: `Login failed with status ${response.status}. Please check your credentials.`,
       };
     } catch (error) {
       console.error('Login error:', error);
@@ -167,6 +256,9 @@ class ApiService {
       const response = await fetch(`${this.baseURL}/`, {
         method: 'GET',
         credentials: 'include',
+        headers: {
+          'Referer': this.baseURL,
+        },
       });
 
       // If we get redirected to login, user is not authenticated
@@ -198,6 +290,7 @@ class ApiService {
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
           'X-CSRFToken': csrfToken,
+          'Referer': this.baseURL,
         },
       });
     } catch (error) {
@@ -211,6 +304,9 @@ class ApiService {
       const response = await fetch(`${this.baseURL}/api/user/`, {
         method: 'GET',
         credentials: 'include',
+        headers: {
+          'Referer': this.baseURL,
+        },
       });
 
       if (response.ok) {
@@ -231,6 +327,7 @@ class ApiService {
         credentials: 'include',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
+          'Referer': this.baseURL,
         },
       });
 
@@ -260,6 +357,7 @@ class ApiService {
         credentials: 'include',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
+          'Referer': this.baseURL,
         },
       });
 
@@ -355,6 +453,7 @@ class ApiService {
           headers: {
             'X-Requested-With': 'XMLHttpRequest',
             'X-CSRFToken': csrfToken,
+            'Referer': this.baseURL,
           },
           signal: controller.signal,
         });
