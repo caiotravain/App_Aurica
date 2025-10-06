@@ -1,7 +1,7 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-const API_BASE_URL = 'https://1103e09335a9.ngrok-free.app'; // Django development server URL
+const API_BASE_URL = 'https://www.appaurica.one/'; // Django development server URL
 
 import { offlineQueueManager } from './offlineQueueManager';
 
@@ -277,7 +277,7 @@ class ApiService {
   // Update measure data for a stakeholder variable with offline support
   async updateMeasureData(measureData: MeasureData, isOnline: boolean = true): Promise<{ success: boolean; error?: string; queued?: boolean }> {
     // If offline, queue the update
-    if (true) {
+    if (!isOnline) {
       try {
         const queueId = await offlineQueueManager.queueUpdate(measureData);
         return { 

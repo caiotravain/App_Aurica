@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Aurica",
-    "slug": "Aurica",
+    "slug": "aurica",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -29,7 +29,12 @@
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_IMAGES"
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ]
     },
     "web": {
@@ -70,6 +75,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b809fdcd-9b19-4693-a67a-c498274d0cde"
+      }
+    },
+    "owner": "caiotravain",
+    "updates": {
+      "url": "https://u.expo.dev/b809fdcd-9b19-4693-a67a-c498274d0cde"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
