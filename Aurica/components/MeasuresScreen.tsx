@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
   RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { apiService, Stakeholder, StakeholderVariable } from '../services/api';
-import { VariableForm } from './VariableForm';
 import { useAuth } from '../contexts/AuthContext';
+import { apiService, Stakeholder, StakeholderVariable } from '../services/api';
 import { LoginScreen } from './LoginScreen';
+import { VariableForm } from './VariableForm';
 
 export const MeasuresScreen: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
@@ -25,7 +26,7 @@ export const MeasuresScreen: React.FC = () => {
   const [selectedVariable, setSelectedVariable] = useState<StakeholderVariable | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'stakeholder' | 'variable' | 'form'>('stakeholder');
+  const [currentStep, setCurrentStep] = useState<'stakeholder' | 'variable'>('stakeholder');
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -81,7 +82,7 @@ export const MeasuresScreen: React.FC = () => {
 
   const handleVariableSelect = (variable: StakeholderVariable) => {
     setSelectedVariable(variable);
-    setCurrentStep('form');
+    // Don't change step, stay in variable list to show form as card
   };
 
   const handleBack = () => {
@@ -89,8 +90,37 @@ export const MeasuresScreen: React.FC = () => {
       setCurrentStep('stakeholder');
       setSelectedStakeholder(null);
       setVariables([]);
-    } else if (currentStep === 'form') {
-      setCurrentStep('variable');
+      setSelectedVariable(null);
+    }
+  };
+
+  const getCurrentVariableIndex = () => {
+    if (!selectedVariable) return -1;
+    return variables.findIndex(v => v.id === selectedVariable.id);
+  };
+
+  const handleNextVariable = () => {
+    const currentIndex = getCurrentVariableIndex();
+    if (currentIndex >= 0 && currentIndex < variables.length - 1) {
+      setSelectedVariable(variables[currentIndex + 1]);
+    }
+  };
+
+  const handlePreviousVariable = () => {
+    const currentIndex = getCurrentVariableIndex();
+    if (currentIndex > 0) {
+      setSelectedVariable(variables[currentIndex - 1]);
+    }
+  };
+
+  const handleFormSubmit = () => {
+    // Automatically go to next variable after successful submission
+    const currentIndex = getCurrentVariableIndex();
+    if (currentIndex >= 0 && currentIndex < variables.length - 1) {
+      // Go to next variable
+      setSelectedVariable(variables[currentIndex + 1]);
+    } else {
+      // No more variables, go back to variable list (deselect)
       setSelectedVariable(null);
     }
   };
@@ -103,14 +133,6 @@ export const MeasuresScreen: React.FC = () => {
       await loadStakeholders();
     }
     setIsRefreshing(false);
-  };
-
-  const handleFormSubmit = () => {
-    // Reset to stakeholder selection after successful submission
-    setCurrentStep('stakeholder');
-    setSelectedStakeholder(null);
-    setSelectedVariable(null);
-    setVariables([]);
   };
 
   // Show loading screen while checking authentication
@@ -130,8 +152,8 @@ export const MeasuresScreen: React.FC = () => {
 
   const renderStakeholderList = () => (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Selecionar Stakeholder</Text>
+      <View style={styles.mainHeader}>
+        <Text style={styles.mainTitle}>Parceiros</Text>
         <TouchableOpacity style={styles.logoutButton} onPress={logout}>
           <Text style={styles.logoutButtonText}>Sair</Text>
         </TouchableOpacity>
@@ -185,110 +207,140 @@ export const MeasuresScreen: React.FC = () => {
     </View>
   );
 
-  const renderVariableList = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backButtonText}>← Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Variáveis</Text>
-      </View>
-      
-      <Text style={styles.subtitle}>
-        {selectedStakeholder?.name} - {selectedStakeholder?.company.name}
-      </Text>
-      
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3498db" />
-          <Text style={styles.loadingText}>Carregando variáveis...</Text>
+  const renderVariableList = () => {
+    const currentIndex = getCurrentVariableIndex();
+    const hasNext = currentIndex >= 0 && currentIndex < variables.length - 1;
+    const hasPrevious = currentIndex > 0;
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={28} color="#2d6122" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Variáveis</Text>
         </View>
-      ) : (
-        <ScrollView
-          style={styles.listContainer}
-          refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
-          }
-        >
-          {variables.map((variable) => (
-            <TouchableOpacity
-              key={variable.id}
-              style={styles.variableCard}
-              onPress={() => handleVariableSelect(variable)}
-            >
-              <View style={styles.variableHeader}>
-                <Text style={styles.variableTitle}>{variable.indicator_variable.variable}</Text>
-                <Text style={styles.sdgNumber}>SDG {variable.indicator_variable.indicator.sdg.sdg_number}</Text>
+        
+        <Text style={styles.subtitle}>
+          {selectedStakeholder?.name} - {selectedStakeholder?.company.name}
+        </Text>
+        
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3498db" />
+            <Text style={styles.loadingText}>Carregando variáveis...</Text>
+          </View>
+        ) : selectedVariable ? (
+          // Show form card when variable is selected
+          <View style={styles.formCardWrapper}>
+            <View style={styles.formCardContainer}>
+              <View style={styles.formCardHeader}>
+                <TouchableOpacity 
+                  style={styles.closeButton} 
+                  onPress={() => setSelectedVariable(null)}
+                >
+                  <Ionicons name="close" size={24} color="#7f8c8d" />
+                </TouchableOpacity>
+            
+                <View style={styles.navigationButtons}>
+                  <TouchableOpacity
+                    style={[styles.navButton, !hasPrevious && styles.navButtonDisabled]}
+                    onPress={handlePreviousVariable}
+                    disabled={!hasPrevious}
+                  >
+                    <Ionicons 
+                      name="chevron-back" 
+                      size={20} 
+                      color={hasPrevious ? "#2d6122" : "#ccc"} 
+                    />
+                  </TouchableOpacity>
+                  <Text style={styles.variableCounter}>
+                    {currentIndex + 1} / {variables.length}
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.navButton, !hasNext && styles.navButtonDisabled]}
+                    onPress={handleNextVariable}
+                    disabled={!hasNext}
+                  >
+                    <Ionicons 
+                      name="chevron-forward" 
+                      size={20} 
+                      color={hasNext ? "#2d6122" : "#ccc"} 
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
-              
-              <Text style={styles.indicatorTitle}>{variable.indicator_variable.indicator.title}</Text>
-              
-              <View style={styles.variableInfo}>
-                <Text style={styles.unitText}>
-                  Unidade: {variable.indicator_variable.unit || 'N/A'}
-                </Text>
-                <Text style={styles.typeText}>
-                  Tipo: {variable.indicator_variable.response_type}
-                </Text>
-              </View>
-              
-              {variable.latest_data && (
-                <View style={styles.latestData}>
-                  <Text style={styles.latestDataLabel}>Última medida:</Text>
-                  <Text style={styles.latestDataValue}>
-                    {variable.latest_data.value} ({variable.latest_data.measurement_date})
+              <VariableForm
+                variable={selectedVariable}
+                onSuccess={handleFormSubmit}
+              />
+            </View>
+          </View>
+        ) : (
+          // Show variable list when no variable is selected
+          <ScrollView
+            style={styles.listContainer}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+            }
+          >
+            {variables.map((variable) => (
+              <TouchableOpacity
+                key={variable.id}
+                style={styles.variableCard}
+                onPress={() => handleVariableSelect(variable)}
+              >
+                <View style={styles.variableHeader}>
+                  <Text style={styles.variableTitle}>{variable.indicator_variable.variable}</Text>
+                  <Text style={styles.sdgNumber}>SDG {variable.indicator_variable.indicator.sdg.sdg_number}</Text>
+                </View>
+                
+                <Text style={styles.indicatorTitle}>{variable.indicator_variable.indicator.title}</Text>
+                
+                <View style={styles.variableInfo}>
+                  <Text style={styles.unitText}>
+                    Unidade: {variable.indicator_variable.unit || 'N/A'}
+                  </Text>
+                  <Text style={styles.typeText}>
+                    Tipo: {variable.indicator_variable.response_type}
                   </Text>
                 </View>
-              )}
-              
-              <View style={styles.statusContainer}>
-                <Text style={[
-                  styles.statusText,
-                  { color: variable.status === 'active' ? '#27ae60' : '#e74c3c' }
-                ]}>
-                  {variable.status === 'active' ? 'Ativo' : 'Inativo'}
-                </Text>
+                
+                {variable.latest_data && (
+                  <View style={styles.latestData}>
+                    <Text style={styles.latestDataLabel}>Última medida:</Text>
+                    <Text style={styles.latestDataValue}>
+                      {variable.latest_data.value} ({variable.latest_data.measurement_date})
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={styles.statusContainer}>
+                  <Text style={[
+                    styles.statusText,
+                    { color: variable.status === 'active' ? '#27ae60' : '#e74c3c' }
+                  ]}>
+                    {variable.status === 'active' ? 'Ativo' : 'Inativo'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            
+            {variables.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>Nenhuma variável encontrada</Text>
               </View>
-            </TouchableOpacity>
-          ))}
-          
-          {variables.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>Nenhuma variável encontrada</Text>
-            </View>
-          )}
-        </ScrollView>
-      )}
-    </View>
-  );
-
-  const renderForm = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backButtonText}>← Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Adicionar Medida</Text>
+            )}
+          </ScrollView>
+        )}
       </View>
-      
-      <Text style={styles.subtitle}>
-        {selectedStakeholder?.name} - {selectedVariable?.indicator_variable.variable}
-      </Text>
-      
-      {selectedVariable && (
-        <VariableForm
-          variable={selectedVariable}
-          onSuccess={handleFormSubmit}
-        />
-      )}
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.screenContainer}>
       {currentStep === 'stakeholder' && renderStakeholderList()}
       {currentStep === 'variable' && renderVariableList()}
-      {currentStep === 'form' && renderForm()}
     </View>
   );
 };
@@ -305,8 +357,16 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginBottom: 10,
+    paddingTop: 10,
+  },
+  mainHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
+    paddingTop: 10,
   },
   searchContainer: {
     marginBottom: 20,
@@ -331,20 +391,27 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   backButton: {
-    marginRight: 15,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingRight: 30,
+
   },
   backButtonText: {
     color: '#2d6122', // Aurica main color
-    fontSize: 16,
+    fontSize: 30,
     fontWeight: '500',
+  },
+  mainTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2d6122', // Aurica main color
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#2d6122', // Aurica main color
-    marginBottom: 8,
+
   },
   subtitle: {
     fontSize: 16,
@@ -363,6 +430,9 @@ const styles = StyleSheet.create({
     color: '#7f8c8d',
   },
   listContainer: {
+    flex: 1,
+  },
+  formCardWrapper: {
     flex: 1,
   },
   stakeholderCard: {
@@ -492,5 +562,59 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  formCardContainer: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    shadowColor: '#2d6122',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e8f5e8',
+    overflow: 'hidden',
+    flexDirection: 'column',
+  },
+  formCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8f5e8',
+    backgroundColor: '#fafbfa',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  formCardTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2d6122',
+    marginLeft: 12,
+  },
+  navigationButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  navButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f8f0',
+    marginHorizontal: 4,
+  },
+  navButtonDisabled: {
+    backgroundColor: '#f5f5f5',
+  },
+  variableCounter: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '500',
+    minWidth: 50,
+    textAlign: 'center',
+    marginHorizontal: 8,
   },
 });
