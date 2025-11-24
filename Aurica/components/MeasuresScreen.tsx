@@ -12,12 +12,15 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { useNetwork } from '../contexts/NetworkContext';
 import { apiService, Stakeholder, StakeholderVariable } from '../services/api';
 import { LoginScreen } from './LoginScreen';
 import { VariableForm } from './VariableForm';
+import { ReportSignatureModal } from './ReportSignatureModal';
 
 export const MeasuresScreen: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
+  const { isOnline } = useNetwork();
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [filteredStakeholders, setFilteredStakeholders] = useState<Stakeholder[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,6 +30,7 @@ export const MeasuresScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentStep, setCurrentStep] = useState<'stakeholder' | 'variable'>('stakeholder');
+  const [showReportModal, setShowReportModal] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -40,9 +44,17 @@ export const MeasuresScreen: React.FC = () => {
       const data = await apiService.getStakeholders();
       setStakeholders(data);
       setFilteredStakeholders(data);
+      
+      if (data.length === 0 && isOnline) {
+        // Only show alert if we're online and got no data
+        Alert.alert('Erro', 'Falha ao carregar stakeholders');
+      }
     } catch (error) {
       console.error('Error loading stakeholders:', error);
-      Alert.alert('Erro', 'Falha ao carregar stakeholders');
+      // Don't show alert for offline errors, data might be cached
+      if (isOnline) {
+        Alert.alert('Erro', 'Falha ao carregar stakeholders');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -66,9 +78,17 @@ export const MeasuresScreen: React.FC = () => {
       setIsLoading(true);
       const data = await apiService.getStakeholderVariables(stakeholderId);
       setVariables(data);
+      
+      if (data.length === 0 && isOnline) {
+        // Only show alert if we're online and got no data
+        Alert.alert('Erro', 'Falha ao carregar variáveis');
+      }
     } catch (error) {
       console.error('Error loading variables:', error);
-      Alert.alert('Erro', 'Falha ao carregar variáveis');
+      // Only show alert if online
+      if (isOnline) {
+        Alert.alert('Erro', 'Falha ao carregar variáveis');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -284,6 +304,19 @@ export const MeasuresScreen: React.FC = () => {
               <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
             }
           >
+            {/* Generate Report Button */}
+            {variables.length > 0 && (
+              <TouchableOpacity
+                style={styles.generateReportButton}
+                onPress={() => setShowReportModal(true)}
+              >
+                <Ionicons name="document-text" size={24} color="#ffffff" />
+                <Text style={styles.generateReportButtonText}>
+                  Gerar Relatório e Assinar Visita
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {variables.map((variable) => (
               <TouchableOpacity
                 key={variable.id}
@@ -341,6 +374,14 @@ export const MeasuresScreen: React.FC = () => {
     <View style={styles.screenContainer}>
       {currentStep === 'stakeholder' && renderStakeholderList()}
       {currentStep === 'variable' && renderVariableList()}
+      
+      {/* Report Signature Modal */}
+      <ReportSignatureModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        stakeholder={selectedStakeholder}
+        variables={variables}
+      />
     </View>
   );
 };
@@ -616,5 +657,28 @@ const styles = StyleSheet.create({
     minWidth: 50,
     textAlign: 'center',
     marginHorizontal: 8,
+  },
+  generateReportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2d6122',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    shadowColor: '#2d6122',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    gap: 12,
+  },
+  generateReportButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
   },
 });

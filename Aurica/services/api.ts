@@ -1,9 +1,11 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-const API_BASE_URL = 'https://appaurica.one'; // Django development server URL
+export const API_BASE_URL = 'https://1a016bb27a7a.ngrok-free.app'; // Django development server URL
 
+import NetInfo from '@react-native-community/netinfo';
 import { offlineQueueManager } from './offlineQueueManager';
+import { offlineStorageService } from './offlineStorage';
 
 export interface LoginCredentials {
   username: string;
@@ -72,11 +74,32 @@ export interface MeasureData {
   };
 }
 
+export interface SignReportData {
+  company: number;
+  stakeholder: number;
+  responsavel_nome: string;
+  assinatura: string; // Base64 encoded image
+}
+
+export interface SignReportResponse {
+  message?: string;
+  pdf_url?: string;
+  pdf_method?: string;
+  relatorio_id?: number;
+  warning?: string;
+  error?: string;
+  details?: any;
+}
+
 class ApiService {
   private baseURL: string;
 
   constructor(baseURL: string = API_BASE_URL) {
     this.baseURL = baseURL;
+  }
+
+  get baseUrl(): string {
+    return this.baseURL;
   }
 
   // Get CSRF token from Django
@@ -322,6 +345,18 @@ class ApiService {
   // Get accessible stakeholders for the current user
   async getStakeholders(): Promise<Stakeholder[]> {
     try {
+      // Check network status
+      const networkState = await NetInfo.fetch();
+      const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+
+      if (!isOnline) {
+        // Offline: Return cached stakeholders
+        console.log('Offline: Loading stakeholders from cache');
+        const cached = await offlineStorageService.getCachedStakeholders();
+        return cached;
+      }
+
+      // Online: Fetch from server
       const response = await fetch(`${this.baseURL}/stakeholders/api/`, {
         method: 'GET',
         credentials: 'include',
@@ -336,15 +371,39 @@ class ApiService {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Stakeholders API response data:', data);
-        return data.stakeholders || [];
+        const stakeholders = data.stakeholders || [];
+        console.log('Stakeholders API response data:', stakeholders);
+        
+        // Cache the stakeholders
+        try {
+          await offlineStorageService.cacheStakeholders(stakeholders);
+        } catch (cacheError) {
+          console.error('Failed to cache stakeholders:', cacheError);
+        }
+        
+        return stakeholders;
       } else {
         const errorText = await response.text();
         console.error('Stakeholders API error response:', errorText);
-        return [];
+        
+        // Fallback to cache on error
+        const cached = await offlineStorageService.getCachedStakeholders();
+        return cached;
       }
     } catch (error) {
       console.error('Get stakeholders error:', error);
+      
+      // On error, try to return cached data
+      try {
+        const cached = await offlineStorageService.getCachedStakeholders();
+        if (cached.length > 0) {
+          console.log('Using cached stakeholders due to error');
+          return cached;
+        }
+      } catch (cacheError) {
+        console.error('Failed to get cached stakeholders:', cacheError);
+      }
+      
       return [];
     }
   }
@@ -352,6 +411,18 @@ class ApiService {
   // Get stakeholder variables for a specific stakeholder
   async getStakeholderVariables(stakeholderId: number): Promise<StakeholderVariable[]> {
     try {
+      // Check network status
+      const networkState = await NetInfo.fetch();
+      const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+
+      if (!isOnline) {
+        // Offline: Return cached variables
+        console.log(`Offline: Loading variables for stakeholder ${stakeholderId} from cache`);
+        const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
+        return cached;
+      }
+
+      // Online: Fetch from server
       const response = await fetch(`${this.baseURL}/stakeholders/get-stakeholder-variables/?stakeholder_id=${stakeholderId}`, {
         method: 'GET',
         credentials: 'include',
@@ -363,11 +434,35 @@ class ApiService {
 
       if (response.ok) {
         const data = await response.json();
-        return data.variables || [];
+        const variables = data.variables || [];
+        
+        // Cache the variables
+        try {
+          await offlineStorageService.cacheStakeholderVariables(stakeholderId, variables);
+        } catch (cacheError) {
+          console.error('Failed to cache stakeholder variables:', cacheError);
+        }
+        
+        return variables;
       }
-      return [];
+      
+      // Fallback to cache on error
+      const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
+      return cached;
     } catch (error) {
       console.error('Get stakeholder variables error:', error);
+      
+      // On error, try to return cached data
+      try {
+        const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
+        if (cached.length > 0) {
+          console.log(`Using cached variables for stakeholder ${stakeholderId} due to error`);
+          return cached;
+        }
+      } catch (cacheError) {
+        console.error('Failed to get cached stakeholder variables:', cacheError);
+      }
+      
       return [];
     }
   }
@@ -504,6 +599,60 @@ class ApiService {
     }
     
     return { success: false, error: 'Network error. Please check your connection and try again.' };
+  }
+
+  // Sign report and generate PDF
+  async signReport(signData: SignReportData): Promise<SignReportResponse> {
+    try {
+      // Get CSRF token
+      const csrfToken = await this.getCSRFToken();
+      
+      if (!csrfToken) {
+        return {
+          error: 'Unable to get security token. Please refresh and try again.',
+        };
+      }
+
+      const response = await fetch(`${this.baseURL}/api/reports/sign/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': this.baseURL,
+        },
+        credentials: 'include',
+        body: JSON.stringify(signData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data;
+      } else {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          // If response is not JSON, get text
+          const text = await response.text();
+          console.error('Sign report error response (non-JSON):', text);
+          return {
+            error: `Failed to sign report (Status: ${response.status})`,
+            details: text,
+          };
+        }
+        console.error('Sign report error response:', errorData);
+        return {
+          error: errorData.error || 'Failed to sign report',
+          details: errorData.details,
+        };
+      }
+    } catch (error) {
+      console.error('Sign report error:', error);
+      return {
+        error: 'Network error. Please check your connection and try again.',
+      };
+    }
   }
 }
 

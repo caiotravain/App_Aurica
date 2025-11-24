@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { MeasureData } from './api';
+import { MeasureData, Stakeholder, StakeholderVariable } from './api';
 
 export interface PendingUpdate {
   id: number;
@@ -42,10 +42,51 @@ class OfflineStorageService {
         );
       `);
 
-      // Create index for faster queries
+      // Create stakeholders table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS stakeholders (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          company_id INTEGER NOT NULL,
+          company_name TEXT NOT NULL,
+          cached_at TEXT NOT NULL
+        );
+      `);
+
+      // Create stakeholder_variables table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS stakeholder_variables (
+          id INTEGER PRIMARY KEY,
+          stakeholder_id INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          current_value TEXT,
+          target_value TEXT,
+          variable TEXT NOT NULL,
+          unit TEXT,
+          response_type TEXT NOT NULL,
+          indicator_title TEXT NOT NULL,
+          sdg_number INTEGER NOT NULL,
+          sdg_title TEXT NOT NULL,
+          latest_value TEXT,
+          latest_measurement_date TEXT,
+          latest_data_quality TEXT,
+          latest_has_attachments INTEGER DEFAULT 0,
+          latest_file_description TEXT,
+          latest_created_at TEXT,
+          cached_at TEXT NOT NULL,
+          FOREIGN KEY (stakeholder_id) REFERENCES stakeholders(id)
+        );
+      `);
+
+      // Create indexes for faster queries
       await this.db.execAsync(`
         CREATE INDEX IF NOT EXISTS idx_pending_updates_created_at 
         ON pending_updates(created_at);
+      `);
+      
+      await this.db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_stakeholder_variables_stakeholder_id 
+        ON stakeholder_variables(stakeholder_id);
       `);
 
       this.isInitialized = true;
@@ -207,6 +248,186 @@ class OfflineStorageService {
       return result as PendingUpdate[];
     } catch (error) {
       console.error('Failed to get updates by stakeholder variable:', error);
+      throw error;
+    }
+  }
+
+  // Stakeholders methods
+  async cacheStakeholders(stakeholders: Stakeholder[]): Promise<void> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Clear existing stakeholders
+      await this.db.runAsync(`DELETE FROM stakeholders`);
+      
+      // Insert new stakeholders
+      const now = new Date().toISOString();
+      for (const stakeholder of stakeholders) {
+        await this.db.runAsync(
+          `INSERT OR REPLACE INTO stakeholders (id, name, company_id, company_name, cached_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            stakeholder.id,
+            stakeholder.name,
+            stakeholder.company.id,
+            stakeholder.company.name,
+            now
+          ]
+        );
+      }
+      
+      console.log(`Cached ${stakeholders.length} stakeholders`);
+    } catch (error) {
+      console.error('Failed to cache stakeholders:', error);
+      throw error;
+    }
+  }
+
+  async getCachedStakeholders(): Promise<Stakeholder[]> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const result = await this.db.getAllAsync(
+        `SELECT * FROM stakeholders ORDER BY name ASC`
+      );
+      
+      return result.map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        company: {
+          id: row.company_id,
+          name: row.company_name,
+        },
+      })) as Stakeholder[];
+    } catch (error) {
+      console.error('Failed to get cached stakeholders:', error);
+      return [];
+    }
+  }
+
+  // Stakeholder variables methods
+  async cacheStakeholderVariables(stakeholderId: number, variables: StakeholderVariable[]): Promise<void> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Clear existing variables for this stakeholder
+      await this.db.runAsync(`DELETE FROM stakeholder_variables WHERE stakeholder_id = ?`, [stakeholderId]);
+      
+      // Insert new variables
+      const now = new Date().toISOString();
+      for (const variable of variables) {
+        await this.db.runAsync(
+          `INSERT OR REPLACE INTO stakeholder_variables (
+            id, stakeholder_id, status, current_value, target_value,
+            variable, unit, response_type, indicator_title,
+            sdg_number, sdg_title,
+            latest_value, latest_measurement_date, latest_data_quality,
+            latest_has_attachments, latest_file_description, latest_created_at,
+            cached_at
+          )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            variable.id,
+            stakeholderId,
+            variable.status,
+            variable.current_value || null,
+            variable.target_value || null,
+            variable.indicator_variable.variable,
+            variable.indicator_variable.unit || null,
+            variable.indicator_variable.response_type,
+            variable.indicator_variable.indicator.title,
+            variable.indicator_variable.indicator.sdg.sdg_number,
+            variable.indicator_variable.indicator.sdg.title,
+            variable.latest_data?.value || null,
+            variable.latest_data?.measurement_date || null,
+            variable.latest_data?.data_quality || null,
+            variable.latest_data?.has_attachments ? 1 : 0,
+            variable.latest_data?.file_description || null,
+            variable.latest_data?.created_at || null,
+            now
+          ]
+        );
+      }
+      
+      console.log(`Cached ${variables.length} variables for stakeholder ${stakeholderId}`);
+    } catch (error) {
+      console.error('Failed to cache stakeholder variables:', error);
+      throw error;
+    }
+  }
+
+  async getCachedStakeholderVariables(stakeholderId: number): Promise<StakeholderVariable[]> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const result = await this.db.getAllAsync(
+        `SELECT * FROM stakeholder_variables 
+         WHERE stakeholder_id = ? 
+         ORDER BY variable ASC`,
+        [stakeholderId]
+      );
+      
+      return result.map((row: any) => ({
+        id: row.id,
+        status: row.status,
+        current_value: row.current_value || '',
+        target_value: row.target_value || '',
+        indicator_variable: {
+          variable: row.variable,
+          unit: row.unit || '',
+          response_type: row.response_type,
+          indicator: {
+            title: row.indicator_title,
+            sdg: {
+              sdg_number: row.sdg_number,
+              title: row.sdg_title,
+            },
+          },
+        },
+        latest_data: row.latest_value ? {
+          value: row.latest_value,
+          measurement_date: row.latest_measurement_date || '',
+          data_quality: row.latest_data_quality || '',
+          has_attachments: row.latest_has_attachments === 1,
+          file_description: row.latest_file_description || undefined,
+          created_at: row.latest_created_at || '',
+        } : undefined,
+      })) as StakeholderVariable[];
+    } catch (error) {
+      console.error('Failed to get cached stakeholder variables:', error);
+      return [];
+    }
+  }
+
+  async clearAllCache(): Promise<void> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      await this.db.runAsync(`DELETE FROM stakeholders`);
+      await this.db.runAsync(`DELETE FROM stakeholder_variables`);
+      console.log('Cleared all cached data');
+    } catch (error) {
+      console.error('Failed to clear cache:', error);
       throw error;
     }
   }
