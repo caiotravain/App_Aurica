@@ -10,7 +10,6 @@ export interface QueueProcessingResult {
 
 class OfflineQueueManager {
   private isProcessing = false;
-  private maxRetries = 3;
   private processingInterval: NodeJS.Timeout | null = null;
   private listeners: Array<(result: QueueProcessingResult) => void> = [];
 
@@ -157,57 +156,39 @@ class OfflineQueueManager {
         result.successCount++;
         console.log(`Successfully processed update ID: ${update.id}`);
       } else {
-        // Failure - increment retry count
+        // Failure - increment retry count and keep in queue for next attempt
         const newRetryCount = update.retry_count + 1;
         
-        if (newRetryCount >= this.maxRetries) {
-          // Max retries reached - remove from queue
-          await offlineStorageService.removeUpdate(update.id);
-          result.failureCount++;
-          result.errors.push({
-            updateId: update.id,
-            error: `Max retries reached: ${apiResult.error}`
-          });
-          console.log(`Max retries reached for update ID: ${update.id}, removing from queue`);
-        } else {
-          // Update retry count and error
-          await offlineStorageService.updateRetryCount(
-            update.id, 
-            newRetryCount, 
-            apiResult.error
-          );
-          result.failureCount++;
-          result.errors.push({
-            updateId: update.id,
-            error: apiResult.error || 'Unknown error'
-          });
-          console.log(`Retry ${newRetryCount}/${this.maxRetries} for update ID: ${update.id}`);
-        }
-      }
-    } catch (error) {
-      console.error(`Error processing update ID: ${update.id}`, error);
-      
-      const newRetryCount = update.retry_count + 1;
-      
-      if (newRetryCount >= this.maxRetries) {
-        await offlineStorageService.removeUpdate(update.id);
-        result.failureCount++;
-        result.errors.push({
-          updateId: update.id,
-          error: `Max retries reached: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
-      } else {
+        // Update retry count and error (unlimited retries as long as there's network)
         await offlineStorageService.updateRetryCount(
           update.id, 
           newRetryCount, 
-          error instanceof Error ? error.message : 'Unknown error'
+          apiResult.error
         );
         result.failureCount++;
         result.errors.push({
           updateId: update.id,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: apiResult.error || 'Unknown error'
         });
+        console.log(`Retry attempt ${newRetryCount} for update ID: ${update.id}`);
       }
+    } catch (error) {
+      console.error(`Error processing update ID: ${update.id}`, error);
+      
+      // Increment retry count and keep in queue for next attempt (unlimited retries)
+      const newRetryCount = update.retry_count + 1;
+      
+      await offlineStorageService.updateRetryCount(
+        update.id, 
+        newRetryCount, 
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+      result.failureCount++;
+      result.errors.push({
+        updateId: update.id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      console.log(`Retry attempt ${newRetryCount} for update ID: ${update.id} (error: ${error instanceof Error ? error.message : 'Unknown error'})`);
     }
   }
 

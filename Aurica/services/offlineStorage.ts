@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
 import { MeasureData, Stakeholder, StakeholderVariable } from './api';
 
 export interface PendingUpdate {
@@ -107,6 +108,41 @@ class OfflineStorageService {
     try {
       const now = new Date().toISOString();
       
+      // If there's a photo, copy it to a permanent location
+      let photoUri = measureData.photo?.uri || null;
+      let photoType = measureData.photo?.type || null;
+      let photoName = measureData.photo?.name || null;
+      
+      if (measureData.photo?.uri) {
+        try {
+          // Create a permanent directory for offline photos
+          const offlinePhotosDir = `${FileSystem.documentDirectory}offline_photos/`;
+          const dirInfo = await FileSystem.getInfoAsync(offlinePhotosDir);
+          
+          if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(offlinePhotosDir, { intermediates: true });
+          }
+          
+          // Generate a unique filename
+          const timestamp = Date.now();
+          const extension = photoName?.split('.').pop() || 'jpg';
+          const permanentFileName = `photo_${timestamp}.${extension}`;
+          const permanentUri = `${offlinePhotosDir}${permanentFileName}`;
+          
+          // Copy the photo to permanent location
+          await FileSystem.copyAsync({
+            from: measureData.photo.uri,
+            to: permanentUri,
+          });
+          
+          console.log(`Copied photo from ${measureData.photo.uri} to ${permanentUri}`);
+          photoUri = permanentUri;
+        } catch (photoError) {
+          console.error('Failed to copy photo to permanent location:', photoError);
+          // Continue with original URI if copy fails (might already be permanent)
+        }
+      }
+      
       const result = await this.db.runAsync(
         `INSERT INTO pending_updates (
           stakeholder_variable_id, value, measurement_date, 
@@ -118,9 +154,9 @@ class OfflineStorageService {
           measureData.value,
           measureData.measurement_date,
           measureData.file_description || null,
-          measureData.photo?.uri || null,
-          measureData.photo?.type || null,
-          measureData.photo?.name || null,
+          photoUri,
+          photoType,
+          photoName,
           now
         ]
       );
@@ -180,6 +216,27 @@ class OfflineStorageService {
     }
 
     try {
+      // Get the update to check if it has a photo that needs cleanup
+      const update = await this.db.getFirstAsync(
+        `SELECT photo_uri FROM pending_updates WHERE id = ?`,
+        [updateId]
+      ) as { photo_uri?: string } | null;
+      
+      // Delete the photo file if it exists and is in our offline_photos directory
+      if (update?.photo_uri && update.photo_uri.includes('offline_photos/')) {
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(update.photo_uri);
+          if (fileInfo.exists) {
+            await FileSystem.deleteAsync(update.photo_uri, { idempotent: true });
+            console.log(`Deleted photo file: ${update.photo_uri}`);
+          }
+        } catch (photoError) {
+          console.error('Failed to delete photo file:', photoError);
+          // Continue with update removal even if photo deletion fails
+        }
+      }
+      
+      // Remove the update from database
       await this.db.runAsync(
         `DELETE FROM pending_updates WHERE id = ?`,
         [updateId]

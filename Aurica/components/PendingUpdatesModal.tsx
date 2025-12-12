@@ -9,6 +9,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { useNetwork } from '../contexts/NetworkContext';
 import { offlineQueueManager } from '../services/offlineQueueManager';
 import { PendingUpdate } from '../services/offlineStorage';
 
@@ -18,6 +19,7 @@ interface PendingUpdatesModalProps {
 }
 
 export const PendingUpdatesModal: React.FC<PendingUpdatesModalProps> = ({ visible, onClose }) => {
+  const { isOnline } = useNetwork();
   const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -116,14 +118,24 @@ export const PendingUpdatesModal: React.FC<PendingUpdatesModalProps> = ({ visibl
 
         <View style={styles.actions}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.processButton]}
+            style={[
+              styles.actionButton, 
+              styles.processButton,
+              (!isOnline || isProcessing || pendingUpdates.length === 0) && styles.actionButtonDisabled
+            ]}
             onPress={handleProcessQueue}
-            disabled={isProcessing || pendingUpdates.length === 0}
+            disabled={!isOnline || isProcessing || pendingUpdates.length === 0}
+            activeOpacity={(!isOnline || isProcessing || pendingUpdates.length === 0) ? 1 : 0.7}
           >
             {isProcessing ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.actionButtonText}>Enviar Agora</Text>
+              <Text style={[
+                styles.actionButtonText,
+                (!isOnline || pendingUpdates.length === 0) && styles.actionButtonTextDisabled
+              ]}>
+                Enviar Agora
+              </Text>
             )}
           </TouchableOpacity>
 
@@ -187,7 +199,7 @@ export const PendingUpdatesModal: React.FC<PendingUpdatesModalProps> = ({ visibl
                 {update.retry_count > 0 && (
                   <View style={styles.updateDetails}>
                     <Text style={styles.updateLabel}>Tentativas:</Text>
-                    <Text style={styles.updateValue}>{update.retry_count}/3</Text>
+                    <Text style={styles.updateValue}>{update.retry_count}</Text>
                   </View>
                 )}
                 
@@ -251,6 +263,10 @@ const styles = StyleSheet.create({
   processButton: {
     backgroundColor: '#2d6122',
   },
+  actionButtonDisabled: {
+    backgroundColor: '#95a5a6',
+    opacity: 0.6,
+  },
   clearButton: {
     backgroundColor: '#e74c3c',
   },
@@ -258,6 +274,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  actionButtonTextDisabled: {
+    color: '#ecf0f1',
+    opacity: 0.8,
   },
   loadingContainer: {
     flex: 1,

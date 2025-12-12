@@ -911,9 +911,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: 10,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e8f5e8',
+    minHeight: 50, // Match the height of Variáveis header
   },
   title: {
     fontSize: 20,

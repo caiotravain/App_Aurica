@@ -495,12 +495,25 @@ class ApiService {
 
   // Update measure data for a stakeholder variable (online only)
   async updateMeasureDataOnline(measureData: MeasureData): Promise<{ success: boolean; error?: string }> {
-    const maxRetries = 2;
+    let attempt = 0;
     let lastError: any = null;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    while (true) {
+      attempt++;
       try {
-        console.log(`Update measure data attempt ${attempt}/${maxRetries}`);
+        // Check network status before attempting
+        const networkState = await NetInfo.fetch();
+        const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+        
+        if (!isOnline) {
+          console.log(`Attempt ${attempt}: No network connection, cannot retry`);
+          return {
+            success: false,
+            error: 'No network connection. Please check your internet and try again.',
+          };
+        }
+
+        console.log(`Update measure data attempt ${attempt}`);
         
         // First, get the CSRF token
         const csrfToken = await this.getCSRFToken();
@@ -571,17 +584,24 @@ class ApiService {
         lastError = error;
         console.error(`Update measure data error (attempt ${attempt}):`, error);
         
-        // If this is not the last attempt, wait a bit before retrying
-        if (attempt < maxRetries) {
-          console.log(`Retrying in 2 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          continue;
+        // Check network before retrying
+        const networkState = await NetInfo.fetch();
+        const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+        
+        if (!isOnline) {
+          console.log('No network connection, stopping retries');
+          return {
+            success: false,
+            error: 'Network error. Please check your connection and try again.',
+          };
         }
+        
+        // Wait before retrying (only if online)
+        console.log(`Retrying in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
       }
     }
-
-    // If we get here, all retries failed
-    console.error('All retry attempts failed. Last error:', lastError);
     
     if (lastError && lastError.name === 'AbortError') {
       return { success: false, error: 'Upload timeout. The image may be too large. Please try with a smaller image.' };

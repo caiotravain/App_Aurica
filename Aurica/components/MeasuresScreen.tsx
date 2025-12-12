@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,7 @@ export const MeasuresScreen: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentStep, setCurrentStep] = useState<'stakeholder' | 'variable'>('stakeholder');
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -170,59 +172,123 @@ export const MeasuresScreen: React.FC = () => {
     return <LoginScreen />;
   }
 
+  const renderStakeholderCard = ({ item }: { item: Stakeholder }) => (
+    <TouchableOpacity
+      style={styles.stakeholderCardNew}
+      onPress={() => handleStakeholderSelect(item)}
+      activeOpacity={0.7}
+    >
+      {/* Leading Icon */}
+      <View style={styles.iconContainer}>
+        <View style={styles.iconBadge}>
+          <Ionicons name="leaf" size={24} color="#FFFFFF" />
+        </View>
+      </View>
+
+      {/* Content */}
+      <View style={styles.cardContent}>
+        <Text style={styles.cardTitle} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <View style={styles.tagContainer}>
+          <Text style={styles.tagText}>Scala</Text>
+        </View>
+      </View>
+
+      {/* Action */}
+      <View style={styles.actionContainer}>
+        <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+      </View>
+    </TouchableOpacity>
+  );
+
   const renderStakeholderList = () => (
-    <View style={styles.container}>
-      <View style={styles.mainHeader}>
-        <Text style={styles.mainTitle}>Parceiros</Text>
-        <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-          <Text style={styles.logoutButtonText}>Sair</Text>
-        </TouchableOpacity>
+    <View style={styles.stakeholderListContainer}>
+      {/* Header Section */}
+      <View style={styles.headerSection}>
+        <View style={styles.headerTop}>
+          <Text style={styles.mainTitleNew}>Parceiros</Text>
+          <View style={styles.profileMenuContainer}>
+            <TouchableOpacity
+              style={styles.profileButton}
+              onPress={() => setShowProfileMenu(!showProfileMenu)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-circle-outline" size={28} color="#95A5A6" />
+              <Ionicons 
+                name={showProfileMenu ? "chevron-up" : "chevron-down"} 
+                size={16} 
+                color="#95A5A6" 
+                style={styles.chevronDown} 
+              />
+            </TouchableOpacity>
+            {showProfileMenu && (
+              <View style={styles.profileMenu}>
+                <TouchableOpacity
+                  style={styles.logoutButtonNew}
+                  onPress={() => {
+                    setShowProfileMenu(false);
+                    logout();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.logoutButtonTextNew}>Sair</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Search Bar */}
+        <View style={styles.searchContainerNew}>
+          <Ionicons name="search" size={20} color="#95A5A6" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInputNew}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar stakeholder ou empresa..."
+            placeholderTextColor="#95A5A6"
+          />
+        </View>
+
+        {/* Sub-header */}
+        <Text style={styles.subHeaderNew}>
+          Escolha o stakeholder para adicionar medidas
+        </Text>
       </View>
-      
-      {/* Search Box */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Buscar stakeholder ou empresa..."
-          placeholderTextColor="#999"
-        />
-      </View>
-      
-      <Text style={styles.subtitle}>Escolha o stakeholder para adicionar medidas</Text>
-      
+
+      {/* List Content */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3498db" />
+          <ActivityIndicator size="large" color="#2d6122" />
           <Text style={styles.loadingText}>Carregando stakeholders...</Text>
         </View>
       ) : (
-        <ScrollView
-          style={styles.listContainer}
+        <FlatList
+          data={filteredStakeholders}
+          renderItem={renderStakeholderCard}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.listContentNew}
+          showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={['#2d6122']}
+              tintColor="#2d6122"
+            />
           }
-        >
-          {filteredStakeholders.map((stakeholder) => (
-            <TouchableOpacity
-              key={stakeholder.id}
-              style={styles.stakeholderCard}
-              onPress={() => handleStakeholderSelect(stakeholder)}
-            >
-              <Text style={styles.stakeholderName}>{stakeholder.name}</Text>
-              <Text style={styles.companyName}>{stakeholder.company.name}</Text>
-            </TouchableOpacity>
-          ))}
-          
-          {filteredStakeholders.length === 0 && (
+          ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                {searchQuery ? 'Nenhum stakeholder encontrado para a busca' : 'Nenhum stakeholder encontrado'}
+                {searchQuery
+                  ? 'Nenhum stakeholder encontrado para a busca'
+                  : 'Nenhum stakeholder encontrado'}
               </Text>
             </View>
-          )}
-        </ScrollView>
+          }
+        />
       )}
     </View>
   );
@@ -325,17 +391,18 @@ export const MeasuresScreen: React.FC = () => {
               >
                 <View style={styles.variableHeader}>
                   <Text style={styles.variableTitle}>{variable.indicator_variable.variable}</Text>
-                  <Text style={styles.sdgNumber}>SDG {variable.indicator_variable.indicator.sdg.sdg_number}</Text>
                 </View>
                 
                 <Text style={styles.indicatorTitle}>{variable.indicator_variable.indicator.title}</Text>
                 
                 <View style={styles.variableInfo}>
                   <Text style={styles.unitText}>
-                    Unidade: {variable.indicator_variable.unit || 'N/A'}
+                    {/* if binario dont appear unit */}
+                    {variable.indicator_variable.response_type !== 'binário' ? `Unidade: ${variable.indicator_variable.unit || 'N/A'}` : ''}
                   </Text>
                   <Text style={styles.typeText}>
-                    Tipo: {variable.indicator_variable.response_type}
+                    {/* if binario appear multiple choice */}
+                    {variable.indicator_variable.response_type === 'binário' ? `Múltipla Escolha` : `Tipo: ${variable.indicator_variable.response_type}`}
                   </Text>
                 </View>
                 
@@ -348,14 +415,7 @@ export const MeasuresScreen: React.FC = () => {
                   </View>
                 )}
                 
-                <View style={styles.statusContainer}>
-                  <Text style={[
-                    styles.statusText,
-                    { color: variable.status === 'active' ? '#27ae60' : '#e74c3c' }
-                  ]}>
-                    {variable.status === 'active' ? 'Ativo' : 'Inativo'}
-                  </Text>
-                </View>
+               
               </TouchableOpacity>
             ))}
             
@@ -389,11 +449,15 @@ export const MeasuresScreen: React.FC = () => {
 const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
-    backgroundColor: '#f0f8f0', // Light green background
+    backgroundColor: '#F8F9FA',
   },
   container: {
     flex: 1,
     padding: 20,
+  },
+  stakeholderListContainer: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
   },
   header: {
     flexDirection: 'row',
@@ -401,13 +465,14 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     marginBottom: 10,
     paddingTop: 10,
+    minHeight: 50, // Consistent height across all headers
   },
   mainHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-    paddingTop: 10,
+    paddingTop: 15,
   },
   searchContainer: {
     marginBottom: 20,
@@ -447,6 +512,150 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#2d6122', // Aurica main color
+  },
+  mainTitleNew: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#2d6122', // Aurica main color - same as Variáveis header
+  },
+  headerSection: {
+    backgroundColor: '#F8F9FA',
+    paddingHorizontal: 20,
+    paddingTop: 30, // Match container padding (20) + header paddingTop (10) = 30
+    paddingBottom: 16,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    minHeight: 50, // Match the height of Variáveis header (paddingTop comes from headerSection)
+  },
+  profileMenuContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+  profileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+  },
+  chevronDown: {
+    marginLeft: 4,
+  },
+  profileMenu: {
+    position: 'absolute',
+    top: 40,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 8,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+  },
+  logoutButtonNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DC3545',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    gap: 8,
+  },
+  logoutButtonTextNew: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  searchContainerNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF1F3',
+    borderRadius: 30,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    height: 48,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInputNew: {
+    flex: 1,
+    fontSize: 16,
+    color: '#2C3E50',
+    padding: 0,
+  },
+  subHeaderNew: {
+    fontSize: 14,
+    color: '#7F8C8D',
+    marginTop: 4,
+  },
+  listContentNew: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  stakeholderCardNew: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  iconContainer: {
+    marginRight: 16,
+  },
+  iconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#7E9F7A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2C3E50',
+    marginBottom: 8,
+  },
+  tagContainer: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5E9',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  tagText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#2E7D32',
+  },
+  actionContainer: {
+    marginLeft: 12,
   },
   title: {
     fontSize: 24,
