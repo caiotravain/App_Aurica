@@ -19,6 +19,7 @@ import * as FileSystem from 'expo-file-system';
 import { apiService, Stakeholder, StakeholderVariable, SignReportData, API_BASE_URL } from '../services/api';
 import { useNetwork } from '../contexts/NetworkContext';
 import { SignatureCapture, SignatureCaptureRef } from './SignatureCapture';
+import { signatureStorageService } from '../services/signatureStorage';
 
 interface ReportSignatureModalProps {
   visible: boolean;
@@ -35,10 +36,19 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
 }) => {
   const [responsavelNome, setResponsavelNome] = useState('');
   const [signatureImage, setSignatureImage] = useState<string | null>(null);
+  const [userSignatureImage, setUserSignatureImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [signatureMode, setSignatureMode] = useState<'draw' | 'photo' | 'gallery' | null>(null);
+  const [userSignatureMode, setUserSignatureMode] = useState<'draw' | 'photo' | 'gallery' | 'saved' | null>(null);
   const [hasDrawnSignature, setHasDrawnSignature] = useState(false);
+  const [hasDrawnUserSignature, setHasDrawnUserSignature] = useState(false);
+  const [hasSavedSignature, setHasSavedSignature] = useState(false);
+  const [saveUserSignature, setSaveUserSignature] = useState(false);
+  const [isResponsavelSignatureCollapsed, setIsResponsavelSignatureCollapsed] = useState(false);
+  const [isUserSignatureCollapsed, setIsUserSignatureCollapsed] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1); // 1: Variables, 2: Responsável, 3: User
   const signatureRef = React.useRef<SignatureCaptureRef>(null);
+  const userSignatureRef = React.useRef<SignatureCaptureRef>(null);
   const { isOnline } = useNetwork();
 
   // Get all variables with their last measures
@@ -46,13 +56,45 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
     (v) => v.latest_data && v.latest_data.value
   );
 
+  // Load saved user signature on mount
+  useEffect(() => {
+    const loadSavedSignature = async () => {
+      try {
+        const saved = await signatureStorageService.getUserSignature();
+        if (saved) {
+          setUserSignatureImage(saved);
+          setUserSignatureMode('saved');
+          setHasSavedSignature(true);
+        }
+      } catch (error) {
+        console.error('Error loading saved signature:', error);
+      }
+    };
+    loadSavedSignature();
+  }, []);
+
   useEffect(() => {
     if (!visible) {
       // Reset form when modal closes
+      setCurrentStep(1);
       setResponsavelNome('');
       setSignatureImage(null);
+      setUserSignatureImage(null);
       setSignatureMode(null);
+      setUserSignatureMode(null);
       setHasDrawnSignature(false);
+      setHasDrawnUserSignature(false);
+      setSaveUserSignature(false);
+      // Reload saved signature
+      signatureStorageService.getUserSignature().then((saved) => {
+        if (saved) {
+          setUserSignatureImage(saved);
+          setUserSignatureMode('saved');
+          setHasSavedSignature(true);
+        } else {
+          setHasSavedSignature(false);
+        }
+      });
     }
   }, [visible]);
 
@@ -145,6 +187,94 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
     setHasDrawnSignature(false);
   };
 
+  const handleUserSignatureChange = (hasSignature: boolean) => {
+    setHasDrawnUserSignature(hasSignature);
+  };
+
+  const handleUserSignatureClear = () => {
+    setHasDrawnUserSignature(false);
+  };
+
+  const handlePickUserSignature = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão Necessária',
+          'Precisamos de permissão para acessar a galeria para selecionar a assinatura.'
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        if (asset.base64) {
+          const base64Image = `data:image/jpeg;base64,${asset.base64}`;
+          setUserSignatureImage(base64Image);
+          setUserSignatureMode('gallery');
+        } else if (asset.uri) {
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: 'base64' as any,
+          });
+          const base64Image = `data:image/jpeg;base64,${base64}`;
+          setUserSignatureImage(base64Image);
+          setUserSignatureMode('gallery');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking user signature:', error);
+      Alert.alert('Erro', 'Falha ao selecionar assinatura. Tente novamente.');
+    }
+  };
+
+  const handleTakeUserSignaturePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão Necessária',
+          'Precisamos de permissão para acessar a câmera para tirar foto da assinatura.'
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        if (asset.base64) {
+          const base64Image = `data:image/jpeg;base64,${asset.base64}`;
+          setUserSignatureImage(base64Image);
+          setUserSignatureMode('photo');
+        } else if (asset.uri) {
+          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+            encoding: 'base64' as any,
+          });
+          const base64Image = `data:image/jpeg;base64,${base64}`;
+          setUserSignatureImage(base64Image);
+          setUserSignatureMode('photo');
+        }
+      }
+    } catch (error) {
+      console.error('Error taking user signature photo:', error);
+      Alert.alert('Erro', 'Falha ao tirar foto da assinatura. Tente novamente.');
+    }
+  };
+
 
   const handleSubmit = async () => {
     if (!stakeholder) {
@@ -157,29 +287,84 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
       return;
     }
 
-    // Get signature from drawing if in draw mode
+    // Get responsavel signature - check both image and drawn signature (even if collapsed)
     let finalSignature = signatureImage;
-    if (signatureMode === 'draw' && signatureRef.current) {
-      if (!signatureRef.current.hasSignature()) {
-        Alert.alert('Erro', 'Por favor, desenhe uma assinatura');
-        return;
-      }
-      try {
-        finalSignature = await signatureRef.current.getSignatureData();
-        if (!finalSignature) {
-          Alert.alert('Erro', 'Falha ao processar assinatura. Tente novamente.');
-          return;
+    
+    // If we have a drawn signature (even if section is collapsed), try to get it from the ref
+    if ((signatureMode === 'draw' || hasDrawnSignature) && signatureRef.current) {
+      if (signatureRef.current.hasSignature()) {
+        try {
+          const drawnSignature = await signatureRef.current.getSignatureData();
+          if (drawnSignature) {
+            finalSignature = drawnSignature;
+          }
+        } catch (error) {
+          console.error('Error getting signature data:', error);
+          // If we have signatureImage as fallback, continue with that
+          if (!finalSignature) {
+            Alert.alert('Erro', 'Falha ao capturar assinatura do responsável. Tente novamente.');
+            return;
+          }
         }
-      } catch (error) {
-        console.error('Error getting signature data:', error);
-        Alert.alert('Erro', 'Falha ao capturar assinatura. Tente novamente.');
-        return;
       }
     }
 
     if (!finalSignature) {
-      Alert.alert('Erro', 'Por favor, adicione uma assinatura');
+      Alert.alert('Erro', 'Por favor, adicione uma assinatura do responsável');
       return;
+    }
+
+    // Get user signature - check both image and drawn signature (even if collapsed)
+    let finalUserSignature = userSignatureImage;
+    
+    // If we have a drawn signature (even if section is collapsed), try to get it from the ref
+    if ((userSignatureMode === 'draw' || hasDrawnUserSignature) && userSignatureRef.current) {
+      if (userSignatureRef.current.hasSignature()) {
+        try {
+          const drawnUserSignature = await userSignatureRef.current.getSignatureData();
+          if (drawnUserSignature) {
+            finalUserSignature = drawnUserSignature;
+            // Update state so we have it for saving
+            setUserSignatureImage(drawnUserSignature);
+          }
+        } catch (error) {
+          console.error('Error getting user signature data:', error);
+          // If we have userSignatureImage as fallback, continue with that
+        }
+      }
+    }
+    
+    // If user signature mode is 'saved' but we don't have the image, try to load it
+    if (userSignatureMode === 'saved' && !finalUserSignature) {
+      try {
+        const saved = await signatureStorageService.getUserSignature();
+        if (saved) {
+          finalUserSignature = saved;
+        }
+      } catch (error) {
+        console.error('Error loading saved user signature:', error);
+      }
+    }
+
+    // Validate user signature is required
+    if (!finalUserSignature && !hasDrawnUserSignature) {
+      Alert.alert('Erro', 'Por favor, adicione uma assinatura do responsável da empresa');
+      return;
+    }
+
+    // Always save user signature if it exists (unless it's already saved and unchanged)
+    // This ensures the latest used signature is always saved for future use
+    if (finalUserSignature) {
+      try {
+        await signatureStorageService.saveUserSignature(finalUserSignature);
+        console.log('User signature saved automatically on submit');
+        // Update mode to saved so it's marked as saved
+        setUserSignatureMode('saved');
+        setHasSavedSignature(true);
+      } catch (error) {
+        console.error('Error saving user signature:', error);
+        // Don't block submission if saving fails
+      }
     }
 
     if (!isOnline) {
@@ -193,11 +378,19 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
     try {
       setIsLoading(true);
 
+      // Ensure user signature is provided (required)
+      if (!finalUserSignature) {
+        Alert.alert('Erro', 'Por favor, adicione uma assinatura do responsável da empresa');
+        setIsLoading(false);
+        return;
+      }
+
       const signData: SignReportData = {
         company: stakeholder.company.id,
         stakeholder: stakeholder.id,
         responsavel_nome: responsavelNome.trim(),
         assinatura: finalSignature,
+        assinatura_usuario: finalUserSignature,
       };
 
       console.log('Submitting signature data:', {
@@ -324,30 +517,43 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
             </TouchableOpacity>
           </View>
 
+          {/* Step Tabs */}
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[styles.tab, currentStep === 1 && styles.tabActive]}
+              onPress={() => setCurrentStep(1)}
+            >
+              <Text style={[styles.tabText, currentStep === 1 && styles.tabTextActive]}>
+                Medidas
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, currentStep === 2 && styles.tabActive]}
+              onPress={() => setCurrentStep(2)}
+            >
+              <Text style={[styles.tabText, currentStep === 2 && styles.tabTextActive]}>
+                Propriedade
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, currentStep === 3 && styles.tabActive]}
+              onPress={() => setCurrentStep(3)}
+            >
+              <Text style={[styles.tabText, currentStep === 3 && styles.tabTextActive]}>
+                {stakeholder?.company?.name || 'Empresa'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <ScrollView
             style={styles.scrollView}
             showsVerticalScrollIndicator={false}
-            scrollEnabled={signatureMode !== 'draw'}
+            scrollEnabled={currentStep !== 2 || signatureMode !== 'draw'}
           >
-            {/* Last Measures Section */}
-            {variablesWithMeasures.length > 0 && (
-              <>
-                {signatureMode === 'draw' ? (
-                  <TouchableOpacity
-                    style={styles.measuresMinimizedBar}
-                    onPress={() => {
-                      setSignatureMode(null);
-                      setSignatureImage(null);
-                      setHasDrawnSignature(false);
-                    }}
-                  >
-                    <Ionicons name="chevron-up" size={20} color="#2d6122" />
-                    <Text style={styles.minimizedBarText}>
-                      Últimas Medidas ({variablesWithMeasures.length})
-                    </Text>
-                    <Ionicons name="close" size={18} color="#7f8c8d" />
-                  </TouchableOpacity>
-                ) : (
+            {/* Step 1: Last Measures */}
+            {currentStep === 1 && (
+              <View style={styles.stepContent}>
+                {variablesWithMeasures.length > 0 ? (
                   <View style={styles.measuresSection}>
                     <Text style={styles.sectionTitle}>Últimas Medidas Coletadas</Text>
                     <Text style={styles.sectionSubtitle}>
@@ -364,7 +570,6 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
                             <Text style={styles.measureVariableName}>
                               {variable.indicator_variable.variable}
                             </Text>
-                   
                           </View>
                           <View style={styles.measureDetails}>
                             <Text style={styles.measureValue}>
@@ -391,117 +596,296 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
                       ))}
                     </ScrollView>
                   </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>Nenhuma medida coletada ainda</Text>
+                  </View>
                 )}
-              </>
+              </View>
             )}
 
-            {/* Responsável Nome */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>
-                Nome do Responsável <Text style={styles.required}>*</Text>
-              </Text>
-              <TextInput
-                style={styles.input}
-                value={responsavelNome}
-                onChangeText={setResponsavelNome}
-                placeholder="Digite o nome do responsável"
-                placeholderTextColor="#999"
-                editable={!isLoading}
-              />
-            </View>
+            {/* Step 2: Responsável Signature */}
+            {currentStep === 2 && (
+              <View style={styles.stepContent}>
+                {/* Responsável Nome */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>
+                    Nome do Responsável da Propriedade <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={responsavelNome}
+                    onChangeText={setResponsavelNome}
+                    placeholder="Digite o nome do responsável da propriedade"
+                    placeholderTextColor="#999"
+                    editable={!isLoading}
+                  />
+                </View>
 
-            {/* Signature Section */}
-            <View style={styles.signatureSection}>
-              <Text style={styles.label}>
-                Assinatura <Text style={styles.required}>*</Text>
-              </Text>
-              {signatureImage && signatureMode !== 'draw' ? (
-                <View style={styles.signaturePreview}>
-                  <Image
-                    source={{ uri: signatureImage }}
-                    style={styles.signatureImage}
-                    resizeMode="contain"
-                  />
-                  <TouchableOpacity
-                    style={styles.removeSignatureButton}
-                    onPress={() => {
-                      setSignatureImage(null);
-                      setSignatureMode(null);
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#e74c3c" />
-                    <Text style={styles.removeSignatureText}>Remover</Text>
-                  </TouchableOpacity>
+                {/* Responsável Signature Section */}
+                <View style={styles.signatureSection}>
+                  <Text style={styles.label}>
+                    Assinatura do Responsável da Propriedade <Text style={styles.required}>*</Text>
+                  </Text>
+                  {signatureImage ? (
+                    <View style={styles.signaturePreview}>
+                      <Image
+                        source={{ uri: signatureImage }}
+                        style={styles.signatureImage}
+                        resizeMode="contain"
+                      />
+                      <TouchableOpacity
+                        style={styles.removeSignatureButton}
+                        onPress={() => {
+                          setSignatureImage(null);
+                          setSignatureMode(null);
+                          setHasDrawnSignature(false);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+                        <Text style={styles.removeSignatureText}>Remover</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : signatureMode === 'draw' && !signatureImage ? (
+                    <View style={styles.drawSignatureContainer}>
+                      <SignatureCapture
+                        ref={signatureRef}
+                        onSignatureChange={handleSignatureChange}
+                        onClear={handleSignatureClear}
+                        width={Dimensions.get('window').width - 80}
+                        height={200}
+                      />
+                      <TouchableOpacity
+                        style={styles.changeSignatureButton}
+                        onPress={() => {
+                          setSignatureMode(null);
+                          setSignatureImage(null);
+                          setHasDrawnSignature(false);
+                        }}
+                      >
+                        <Text style={styles.changeSignatureText}>Escolher outro método</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.signatureButtons}>
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={() => setSignatureMode('draw')}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="create-outline" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={handleTakeSignaturePhoto}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="camera" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={handlePickSignature}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="image" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
-              ) : signatureMode === 'draw' ? (
-                <View style={styles.drawSignatureContainer}>
-                  <SignatureCapture
-                    ref={signatureRef}
-                    onSignatureChange={handleSignatureChange}
-                    onClear={handleSignatureClear}
-                    width={Dimensions.get('window').width - 80}
-                    height={200}
-                  />
-                  <TouchableOpacity
-                    style={styles.changeSignatureButton}
-                    onPress={() => {
-                      setSignatureMode(null);
-                      setSignatureImage(null);
-                      setHasDrawnSignature(false);
-                    }}
-                  >
-                    <Text style={styles.changeSignatureText}>Escolher outro método</Text>
-                  </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Step 3: User Signature */}
+            {currentStep === 3 && (
+              <View style={styles.stepContent}>
+                <View style={styles.signatureSection}>
+                  <Text style={styles.label}>
+                    Assinatura do Responsável da {stakeholder?.company?.name || 'Empresa'} <Text style={styles.required}>*</Text>
+                  </Text>
+                  {userSignatureImage ? (
+                    <View style={styles.signaturePreview}>
+                      <Image
+                        source={{ uri: userSignatureImage }}
+                        style={styles.signatureImage}
+                        resizeMode="contain"
+                      />
+                      <View style={styles.signatureActions}>
+                        <TouchableOpacity
+                          style={styles.removeSignatureButton}
+                          onPress={() => {
+                            setUserSignatureImage(null);
+                            setUserSignatureMode(null);
+                            setHasDrawnUserSignature(false);
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+                          <Text style={styles.removeSignatureText}>Remover</Text>
+                        </TouchableOpacity>
+                        {userSignatureMode !== 'saved' && (
+                          <TouchableOpacity
+                            style={styles.saveSignatureButton}
+                            onPress={async () => {
+                              if (userSignatureImage) {
+                                try {
+                                  await signatureStorageService.saveUserSignature(userSignatureImage);
+                                  setUserSignatureMode('saved');
+                                  setHasSavedSignature(true);
+                                  Alert.alert('Sucesso', 'Assinatura salva com sucesso!');
+                                } catch (error) {
+                                  Alert.alert('Erro', 'Falha ao salvar assinatura');
+                                }
+                              }
+                            }}
+                          >
+                            <Ionicons name="save-outline" size={20} color="#2d6122" />
+                            <Text style={styles.saveSignatureText}>Salvar</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  ) : userSignatureMode === 'draw' && !userSignatureImage ? (
+                    <View style={styles.drawSignatureContainer}>
+                      <SignatureCapture
+                        ref={userSignatureRef}
+                        onSignatureChange={handleUserSignatureChange}
+                        onClear={handleUserSignatureClear}
+                        width={Dimensions.get('window').width - 80}
+                        height={200}
+                      />
+                      <TouchableOpacity
+                        style={styles.changeSignatureButton}
+                        onPress={() => {
+                          setUserSignatureMode(null);
+                          setUserSignatureImage(null);
+                          setHasDrawnUserSignature(false);
+                        }}
+                      >
+                        <Text style={styles.changeSignatureText}>Escolher outro método</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.signatureButtons}>
+                      {hasSavedSignature && (
+                        <TouchableOpacity
+                          style={styles.signatureButton}
+                          onPress={async () => {
+                            const saved = await signatureStorageService.getUserSignature();
+                            if (saved) {
+                              setUserSignatureImage(saved);
+                              setUserSignatureMode('saved');
+                            }
+                          }}
+                          disabled={isLoading}
+                        >
+                          <Ionicons name="checkmark-circle" size={24} color="#2d6122" />
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={() => setUserSignatureMode('draw')}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="create-outline" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={handleTakeUserSignaturePhoto}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="camera" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.signatureButton}
+                        onPress={handlePickUserSignature}
+                        disabled={isLoading}
+                      >
+                        <Ionicons name="image" size={24} color="#2d6122" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
-              ) : (
-                <View style={styles.signatureButtons}>
-                  <TouchableOpacity
-                    style={styles.signatureButton}
-                    onPress={() => setSignatureMode('draw')}
-                    disabled={isLoading}
-                  >
-                    <Ionicons name="create-outline" size={24} color="#2d6122" />
-                    <Text style={styles.signatureButtonText}>Desenhar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.signatureButton}
-                    onPress={handleTakeSignaturePhoto}
-                    disabled={isLoading}
-                  >
-                    <Ionicons name="camera" size={24} color="#2d6122" />
-                    <Text style={styles.signatureButtonText}>Tirar Foto</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.signatureButton}
-                    onPress={handlePickSignature}
-                    disabled={isLoading}
-                  >
-                    <Ionicons name="image" size={24} color="#2d6122" />
-                    <Text style={styles.signatureButtonText}>Galeria</Text>
-                  </TouchableOpacity>
-                </View>
+              </View>
+            )}
+
+            {/* Navigation Buttons */}
+            <View style={styles.navigationContainer}>
+              {currentStep > 1 && (
+                <TouchableOpacity
+                  style={styles.navButton}
+                  onPress={() => setCurrentStep(currentStep - 1)}
+                  disabled={isLoading}
+                >
+                  <Ionicons name="chevron-back" size={20} color="#2d6122" />
+                  <Text style={styles.navButtonText}>Anterior</Text>
+                </TouchableOpacity>
+              )}
+              {currentStep < 3 && (
+                <TouchableOpacity
+                  style={[styles.navButton, styles.navButtonPrimary]}
+                  onPress={async () => {
+                    // Validate before moving to next step
+                    if (currentStep === 2) {
+                      if (!responsavelNome.trim()) {
+                        Alert.alert('Erro', 'Por favor, insira o nome do responsável da propriedade');
+                        return;
+                      }
+                      
+                      // Capture drawn signature if it exists
+                      let finalSignature = signatureImage;
+                      if ((signatureMode === 'draw' || hasDrawnSignature) && signatureRef.current) {
+                        if (signatureRef.current.hasSignature()) {
+                          try {
+                            const drawnSignature = await signatureRef.current.getSignatureData();
+                            if (drawnSignature) {
+                              finalSignature = drawnSignature;
+                              setSignatureImage(drawnSignature);
+                              setSignatureMode('gallery'); // Change mode so it shows as preview if user goes back
+                            }
+                          } catch (error) {
+                            console.error('Error capturing signature:', error);
+                            // Continue with validation even if capture fails
+                          }
+                        }
+                      }
+                      
+                      if (!finalSignature && !hasDrawnSignature) {
+                        Alert.alert('Erro', 'Por favor, adicione uma assinatura do responsável da propriedade');
+                        return;
+                      }
+                    }
+                    setCurrentStep(currentStep + 1);
+                  }}
+                  disabled={isLoading}
+                >
+                  <Text style={[styles.navButtonText, styles.navButtonTextPrimary]}>Próximo</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#fff" />
+                </TouchableOpacity>
               )}
             </View>
 
-            {/* Submit Button */}
-            <TouchableOpacity
-              style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={isLoading || !isOnline}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>
-                  Assinar e Gerar Relatório
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            {!isOnline && (
+            {!isOnline && currentStep === 3 && (
               <Text style={styles.offlineWarning}>
                 É necessário estar online para gerar o relatório.
               </Text>
+            )}
+
+            {/* Submit Button - Only on last step, below everything */}
+            {currentStep === 3 && (
+              <View style={styles.submitButtonContainer}>
+                <TouchableOpacity
+                  style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+                  onPress={handleSubmit}
+                  disabled={isLoading || !isOnline}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.submitButtonText}>
+                      Assinar e Gerar Relatório
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             )}
           </ScrollView>
         </View>
@@ -670,6 +1054,11 @@ const styles = StyleSheet.create({
   required: {
     color: '#e74c3c',
   },
+  optional: {
+    color: '#7f8c8d',
+    fontSize: 12,
+    fontWeight: 'normal',
+  },
   input: {
     borderWidth: 2,
     borderColor: '#e8f5e8',
@@ -682,6 +1071,15 @@ const styles = StyleSheet.create({
   },
   signatureSection: {
     marginBottom: 20,
+  },
+  signatureSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  collapseButton: {
+    padding: 4,
   },
   signatureButtons: {
     flexDirection: 'row',
@@ -730,13 +1128,36 @@ const styles = StyleSheet.create({
     color: '#e74c3c',
     fontWeight: '500',
   },
+  signatureActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 12,
+  },
+  saveSignatureButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  saveSignatureText: {
+    fontSize: 14,
+    color: '#2d6122',
+    fontWeight: '500',
+  },
+  submitButtonContainer: {
+    width: '98%',
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 10,
+  },
   submitButton: {
     backgroundColor: '#2d6122',
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 10,
+    width: '100%',
   },
   submitButtonDisabled: {
     backgroundColor: '#a0b8a0',
@@ -765,6 +1186,78 @@ const styles = StyleSheet.create({
     color: '#2d6122',
     fontSize: 14,
     fontWeight: '500',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8f5e8',
+    paddingHorizontal: 20,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: '#2d6122',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#7f8c8d',
+  },
+  tabTextActive: {
+    color: '#2d6122',
+    fontWeight: '600',
+  },
+  stepContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontStyle: 'italic',
+  },
+  navigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e8f5e8',
+    marginTop: 20,
+  },
+  navButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#2d6122',
+    backgroundColor: 'transparent',
+    gap: 8,
+  },
+  navButtonPrimary: {
+    backgroundColor: '#2d6122',
+    borderColor: '#2d6122',
+    marginLeft: 'auto',
+  },
+  navButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2d6122',
+  },
+  navButtonTextPrimary: {
+    color: '#fff',
   },
 });
 

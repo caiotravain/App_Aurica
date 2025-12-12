@@ -1,7 +1,7 @@
 // API service for communicating with Django server
 // For Expo Go, use your computer's network IP address instead of localhost
 // Replace '192.168.1.100' with your actual IP address (run 'ipconfig' on Windows to find it)
-export const API_BASE_URL = 'https://1a016bb27a7a.ngrok-free.app'; // Django development server URL
+export const API_BASE_URL = 'https://appaurica.one'; // Django development server URL
 
 import NetInfo from '@react-native-community/netinfo';
 import { offlineQueueManager } from './offlineQueueManager';
@@ -78,7 +78,9 @@ export interface SignReportData {
   company: number;
   stakeholder: number;
   responsavel_nome: string;
-  assinatura: string; // Base64 encoded image
+  assinatura: string; // Base64 encoded image - responsavel signature
+  assinatura_usuario: string; // Base64 encoded image - user signature (required)
+  usuario_nome?: string; // User name (optional, will use authenticated user if not provided)
 }
 
 export interface SignReportResponse {
