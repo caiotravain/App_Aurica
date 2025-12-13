@@ -29,6 +29,7 @@ export interface User {
 export interface Stakeholder {
   id: number;
   name: string;
+  administrator?: string;
   company: {
     id: number;
     name: string;
@@ -44,6 +45,7 @@ export interface StakeholderVariable {
     variable: string;
     unit: string;
     response_type: string;
+    material_theme: string;
     indicator: {
       title: string;
       sdg: {

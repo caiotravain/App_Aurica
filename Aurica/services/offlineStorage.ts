@@ -48,6 +48,7 @@ class OfflineStorageService {
         CREATE TABLE IF NOT EXISTS stakeholders (
           id INTEGER PRIMARY KEY,
           name TEXT NOT NULL,
+          administrator TEXT,
           company_id INTEGER NOT NULL,
           company_name TEXT NOT NULL,
           cached_at TEXT NOT NULL
@@ -325,11 +326,12 @@ class OfflineStorageService {
       const now = new Date().toISOString();
       for (const stakeholder of stakeholders) {
         await this.db.runAsync(
-          `INSERT OR REPLACE INTO stakeholders (id, name, company_id, company_name, cached_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO stakeholders (id, name, administrator, company_id, company_name, cached_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
           [
             stakeholder.id,
             stakeholder.name,
+            stakeholder.administrator || null,
             stakeholder.company.id,
             stakeholder.company.name,
             now
@@ -359,6 +361,7 @@ class OfflineStorageService {
       return result.map((row: any) => ({
         id: row.id,
         name: row.name,
+        administrator: row.administrator || undefined,
         company: {
           id: row.company_id,
           name: row.company_name,

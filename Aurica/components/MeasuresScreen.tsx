@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -33,6 +34,10 @@ export const MeasuresScreen: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<'stakeholder' | 'variable'>('stakeholder');
   const [showReportModal, setShowReportModal] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAllVariables, setShowAllVariables] = useState(false);
+  const [variableSearchQuery, setVariableSearchQuery] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedMaterialThemes, setSelectedMaterialThemes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -113,34 +118,225 @@ export const MeasuresScreen: React.FC = () => {
       setSelectedStakeholder(null);
       setVariables([]);
       setSelectedVariable(null);
+      setShowAllVariables(false);
+      setVariableSearchQuery('');
     }
   };
 
+  // Check if a variable has a measurement today (using local timezone)
+  const hasMeasurementToday = (variable: StakeholderVariable): boolean => {
+    if (!variable.latest_data || !variable.latest_data.measurement_date) {
+      return false;
+    }
+
+    try {
+      // Parse the measurement date string (format: DD/MM/YYYY or YYYY-MM-DD)
+      const dateStr = variable.latest_data.measurement_date.trim();
+      
+      // Extract just the date part (before any space or T)
+      const dateOnly = dateStr.split(' ')[0].split('T')[0];
+      
+      let year: number, month: number, day: number;
+      
+      // Check if it's DD/MM/YYYY format
+      if (dateOnly.includes('/')) {
+        const parts = dateOnly.split('/');
+        if (parts.length !== 3) {
+          console.warn('Invalid date format (DD/MM/YYYY):', dateStr);
+          return false;
+        }
+        day = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        year = parseInt(parts[2], 10);
+      } 
+      // Check if it's YYYY-MM-DD format
+      else if (dateOnly.includes('-')) {
+        const parts = dateOnly.split('-');
+        if (parts.length !== 3) {
+          console.warn('Invalid date format (YYYY-MM-DD):', dateStr);
+          return false;
+        }
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+      } else {
+        console.warn('Unknown date format:', dateStr);
+        return false;
+      }
+      
+      // Validate parsed values
+      if (isNaN(year) || isNaN(month) || isNaN(day)) {
+        console.warn('Invalid date values:', { year, month, day, dateStr });
+        return false;
+      }
+      
+      // Get today's date in local timezone
+      const today = new Date();
+      const todayYear = today.getFullYear();
+      const todayMonth = today.getMonth() + 1; // getMonth() returns 0-11
+      const todayDay = today.getDate();
+      
+      // Compare year, month, and day in local timezone
+      const isToday = year === todayYear && month === todayMonth && day === todayDay;
+      
+      return isToday;
+    } catch (error) {
+      console.error('Error parsing measurement date:', error, variable.latest_data.measurement_date);
+      return false;
+    }
+  };
+
+  // Get unique material themes from variables
+  const availableMaterialThemes = useMemo(() => {
+    const themes = new Set<string>();
+    variables.forEach(variable => {
+      const theme = variable.indicator_variable.material_theme;
+      if (theme && theme.trim() !== '') {
+        themes.add(theme);
+      }
+    });
+    return Array.from(themes).sort();
+  }, [variables]);
+
+  // Helper function to get material theme display name
+  const getMaterialThemeDisplayName = (theme: string): string => {
+    const themeNames: { [key: string]: string } = {
+      'aquisicao_animais_racao': 'Aquisição de Animais e Ração',
+      'cuidado_bem_estar_animal': 'Cuidado e Bem-Estar Animal',
+      'emissoes_gases_efeito_estufa': 'Emissões de Gases de Efeito Estufa',
+      'gestao_agua': 'Gestão de Água',
+      'bem-estar_animal': 'Bem-Estar Animal',
+      'gestao_energia': 'Gestão de Energia',
+      'impactos_cadeia_suprimentos_animal': 'Impactos Ambientais e Sociais da Cadeia de Suprimentos Animal',
+      'metricas_atividade': 'Métricas de Atividade',
+      'saude_seguranca_forca_trabalho': 'Saúde e Segurança da Força de Trabalho',
+      'seguranca_alimentar': 'Segurança Alimentar',
+      'uso_antibioticos': 'Uso de Antibióticos na Produção Animal',
+      'uso_solo_impactos_ecologicos': 'Uso do Solo e Impactos Ecológicos',
+      'adaptacao_resiliencia_climatica': 'Adaptação e resiliência climática',
+      'agua_efluentes': 'Água e efluentes',
+      'biodiversidade': 'Biodiversidade',
+      'comunidades_locais': 'Comunidades Locais',
+      'conversao_ecossistemas': 'Conversão de ecossistemas naturais',
+      'emissoes': 'Emissões',
+      'inocuidade_alimentos': 'Inocuidade dos alimentos',
+      'praticas_empregaticias': 'Práticas empregatícias',
+      'rastreabilidade_fornecedores': 'Rastreabilidade da cadeia de fornecedores',
+      'renda_salario_digno': 'Renda digna e salário digno',
+      'residuos': 'Resíduos',
+      'saude_solo': 'Saúde do solo',
+      'saude_bem_estar_animal': 'Saúde e bem-estar animal',
+      'saude_seguranca_trabalho': 'Saúde e segurança do trabalho',
+      'trabalho_forcado': 'Trabalho forçado ou análogo ao escravo',
+      'bem_estar_animal': 'Bem-Estar Animal',
+      'gestao': 'Gestão',
+      'infraestrutura': 'Infraestrutura',
+      'qualidade_leite': 'Qualidade do Leite',
+      'fauna': 'Fauna Silvestre',
+      'flora': 'Flora Nativa',
+      'recursos_hidricos': 'Recursos Hídricos',
+      'mudancas_climaticas': 'Mudanças Climáticas',
+      'poluicao': 'Poluição',
+      'conservacao': 'Conservação',
+      'restauracao': 'Restauração Ecológica',
+      'sustentabilidade': 'Sustentabilidade',
+      'economia_circular': 'Economia Circular',
+      'eficiencia_energetica': 'Eficiência Energética',
+      'energias_renovaveis': 'Energias Renováveis',
+      'gestao_ambiental': 'Gestão Ambiental',
+      'compliance_ambiental': 'Compliance Ambiental',
+      'impacto_ambiental': 'Impacto Ambiental',
+      'monitoramento': 'Monitoramento Ambiental',
+      'relatorios_ambientais': 'Relatórios Ambientais',
+    };
+    return themeNames[theme] || theme;
+  };
+
+  // Toggle material theme selection
+  const toggleMaterialTheme = (theme: string) => {
+    const newSelected = new Set(selectedMaterialThemes);
+    if (newSelected.has(theme)) {
+      newSelected.delete(theme);
+    } else {
+      newSelected.add(theme);
+    }
+    setSelectedMaterialThemes(newSelected);
+  };
+
+  // Select all material themes
+  const selectAllMaterialThemes = () => {
+    setSelectedMaterialThemes(new Set(availableMaterialThemes));
+  };
+
+  // Deselect all material themes
+  const deselectAllMaterialThemes = () => {
+    setSelectedMaterialThemes(new Set());
+  };
+
+  // Filter variables based on "todos" checkbox, search query, and material themes - using useMemo for proper re-rendering
+  const filteredVariables = useMemo(() => {
+    let filtered = variables;
+    
+    // First filter by date (if "todos" is unchecked)
+    if (!showAllVariables) {
+      // Only show variables that don't have a measurement today
+      filtered = filtered.filter(variable => !hasMeasurementToday(variable));
+    }
+    
+    // Then filter by material themes (if any are selected)
+    if (selectedMaterialThemes.size > 0) {
+      filtered = filtered.filter(variable => {
+        const theme = variable.indicator_variable.material_theme || '';
+        return selectedMaterialThemes.has(theme);
+      });
+    }
+    
+    // Finally filter by search query
+    if (variableSearchQuery.trim() !== '') {
+      const query = variableSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter(variable => {
+        const variableName = variable.indicator_variable.variable.toLowerCase();
+        const indicatorTitle = variable.indicator_variable.indicator.title.toLowerCase();
+        return variableName.includes(query) || indicatorTitle.includes(query);
+      });
+    }
+    
+    console.log('Filtering variables:', {
+      showAll: showAllVariables,
+      selectedThemes: selectedMaterialThemes.size,
+      searchQuery: variableSearchQuery,
+      total: variables.length,
+      filtered: filtered.length,
+      today: new Date().toLocaleDateString('pt-BR')
+    });
+    return filtered;
+  }, [variables, showAllVariables, variableSearchQuery, selectedMaterialThemes]);
+
   const getCurrentVariableIndex = () => {
     if (!selectedVariable) return -1;
-    return variables.findIndex(v => v.id === selectedVariable.id);
+    return filteredVariables.findIndex(v => v.id === selectedVariable.id);
   };
 
   const handleNextVariable = () => {
     const currentIndex = getCurrentVariableIndex();
-    if (currentIndex >= 0 && currentIndex < variables.length - 1) {
-      setSelectedVariable(variables[currentIndex + 1]);
+    if (currentIndex >= 0 && currentIndex < filteredVariables.length - 1) {
+      setSelectedVariable(filteredVariables[currentIndex + 1]);
     }
   };
 
   const handlePreviousVariable = () => {
     const currentIndex = getCurrentVariableIndex();
     if (currentIndex > 0) {
-      setSelectedVariable(variables[currentIndex - 1]);
+      setSelectedVariable(filteredVariables[currentIndex - 1]);
     }
   };
 
   const handleFormSubmit = () => {
     // Automatically go to next variable after successful submission
     const currentIndex = getCurrentVariableIndex();
-    if (currentIndex >= 0 && currentIndex < variables.length - 1) {
+    if (currentIndex >= 0 && currentIndex < filteredVariables.length - 1) {
       // Go to next variable
-      setSelectedVariable(variables[currentIndex + 1]);
+      setSelectedVariable(filteredVariables[currentIndex + 1]);
     } else {
       // No more variables, go back to variable list (deselect)
       setSelectedVariable(null);
@@ -188,8 +384,13 @@ export const MeasuresScreen: React.FC = () => {
       {/* Content */}
       <View style={styles.cardContent}>
         <Text style={styles.cardTitle} numberOfLines={2}>
-          {item.name}
+          {item.administrator || item.name}
         </Text>
+        {item.administrator && (
+          <Text style={styles.cardSubtitle} numberOfLines={1}>
+            {item.name}
+          </Text>
+        )}
         <View style={styles.tagContainer}>
           <Text style={styles.tagText}>Scala</Text>
         </View>
@@ -247,14 +448,14 @@ export const MeasuresScreen: React.FC = () => {
             style={styles.searchInputNew}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Buscar stakeholder ou empresa..."
+            placeholder="Buscar parceiro ou empresa..."
             placeholderTextColor="#95A5A6"
           />
         </View>
 
         {/* Sub-header */}
         <Text style={styles.subHeaderNew}>
-          Escolha o stakeholder para adicionar medidas
+          Escolha o parceiro para adicionar medidas
         </Text>
       </View>
 
@@ -262,7 +463,7 @@ export const MeasuresScreen: React.FC = () => {
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2d6122" />
-          <Text style={styles.loadingText}>Carregando stakeholders...</Text>
+          <Text style={styles.loadingText}>Carregando parceiros...</Text>
         </View>
       ) : (
         <FlatList
@@ -283,8 +484,8 @@ export const MeasuresScreen: React.FC = () => {
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
                 {searchQuery
-                  ? 'Nenhum stakeholder encontrado para a busca'
-                  : 'Nenhum stakeholder encontrado'}
+                  ? 'Nenhum parceiro encontrado para a busca'
+                  : 'Nenhum parceiro encontrado'}
               </Text>
             </View>
           }
@@ -341,7 +542,7 @@ export const MeasuresScreen: React.FC = () => {
                     />
                   </TouchableOpacity>
                   <Text style={styles.variableCounter}>
-                    {currentIndex + 1} / {variables.length}
+                    {currentIndex + 1} / {filteredVariables.length}
                   </Text>
                   <TouchableOpacity
                     style={[styles.navButton, !hasNext && styles.navButtonDisabled]}
@@ -370,6 +571,8 @@ export const MeasuresScreen: React.FC = () => {
               <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
             }
           >
+
+
             {/* Generate Report Button */}
             {variables.length > 0 && (
               <TouchableOpacity
@@ -382,8 +585,39 @@ export const MeasuresScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             )}
-
-            {variables.map((variable) => (
+            {/* Search and Filter Row */}
+            <View style={styles.searchFilterRow}>
+              <View style={styles.searchInputContainer}>
+                <Ionicons name="search" size={16} color="#95A5A6" style={styles.searchIconSmall} />
+                <TextInput
+                  style={styles.searchInputSmall}
+                  value={variableSearchQuery}
+                  onChangeText={setVariableSearchQuery}
+                  placeholder="Buscar variável..."
+                  placeholderTextColor="#95A5A6"
+                />
+                {variableSearchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setVariableSearchQuery('')}
+                    style={styles.clearSearchButton}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#95A5A6" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                style={styles.filterButton}
+                onPress={() => setShowFilterModal(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons 
+                  name="filter" 
+                  size={20} 
+                  color={(showAllVariables || selectedMaterialThemes.size > 0) ? "#2d6122" : "#95A5A6"} 
+                />
+              </TouchableOpacity>
+            </View>
+            {filteredVariables.map((variable) => (
               <TouchableOpacity
                 key={variable.id}
                 style={styles.variableCard}
@@ -419,9 +653,13 @@ export const MeasuresScreen: React.FC = () => {
               </TouchableOpacity>
             ))}
             
-            {variables.length === 0 && (
+            {filteredVariables.length === 0 && (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>Nenhuma variável encontrada</Text>
+                <Text style={styles.emptyText}>
+                  {showAllVariables 
+                    ? 'Nenhuma variável encontrada' 
+                    : 'Todas as variáveis já têm medida hoje'}
+                </Text>
               </View>
             )}
           </ScrollView>
@@ -434,6 +672,106 @@ export const MeasuresScreen: React.FC = () => {
     <View style={styles.screenContainer}>
       {currentStep === 'stakeholder' && renderStakeholderList()}
       {currentStep === 'variable' && renderVariableList()}
+      
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filtros</Text>
+              <TouchableOpacity
+                onPress={() => setShowFilterModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#2C3E50" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {/* Todos Checkbox */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterSectionTitle}>Mostrar todas as variáveis</Text>
+                <TouchableOpacity
+                  style={styles.checkboxRow}
+                  onPress={() => setShowAllVariables(!showAllVariables)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, showAllVariables && styles.checkboxChecked]}>
+                    {showAllVariables && (
+                      <Ionicons name="checkmark" size={18} color="#ffffff" />
+                    )}
+                  </View>
+                  <Text style={styles.checkboxLabel}>
+                    Mostrar todas as variáveis (incluindo as que já têm medida hoje)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Material Themes Section */}
+              <View style={styles.filterSection}>
+                <View style={styles.filterSectionHeader}>
+                  <Text style={styles.filterSectionTitle}>Temas Materiais</Text>
+                  <View style={styles.filterActions}>
+                    <TouchableOpacity
+                      onPress={selectAllMaterialThemes}
+                      style={styles.filterActionButton}
+                    >
+                      <Text style={styles.filterActionText}>Selecionar Todos</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={deselectAllMaterialThemes}
+                      style={styles.filterActionButton}
+                    >
+                      <Text style={styles.filterActionText}>Limpar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {availableMaterialThemes.length > 0 ? (
+                  availableMaterialThemes.map((theme) => {
+                    const isSelected = selectedMaterialThemes.has(theme);
+                    return (
+                      <TouchableOpacity
+                        key={theme}
+                        style={styles.themeItem}
+                        onPress={() => toggleMaterialTheme(theme)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                          {isSelected && (
+                            <Ionicons name="checkmark" size={18} color="#ffffff" />
+                          )}
+                        </View>
+                        <Text style={[styles.themeItemText, isSelected && styles.themeItemTextSelected]}>
+                          {getMaterialThemeDisplayName(theme)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.noThemesText}>Nenhum tema material disponível</Text>
+                )}
+              </View>
+
+              {/* Apply Button - Inside ScrollView but positioned higher */}
+              <View style={styles.modalFooterInside}>
+                <TouchableOpacity
+                  style={styles.modalApplyButton}
+                  onPress={() => setShowFilterModal(false)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalApplyButtonText}>Aplicar Filtros</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       
       {/* Report Signature Modal */}
       <ReportSignatureModal
@@ -640,6 +978,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#2C3E50',
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#7F8C8D',
     marginBottom: 8,
   },
   tagContainer: {
@@ -889,5 +1233,189 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1,
     textAlign: 'center',
+  },
+  searchFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    marginBottom: 8,
+    marginTop: 8,
+    gap: 8,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF1F3',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    height: 36,
+  },
+  searchIconSmall: {
+    marginRight: 8,
+  },
+  searchInputSmall: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2C3E50',
+    padding: 0,
+  },
+  clearSearchButton: {
+    marginLeft: 4,
+    padding: 2,
+  },
+  filterButton: {
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    maxHeight: '90%',
+    minHeight: 500,
+    width: '100%',
+    paddingBottom: 0,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2C3E50',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  modalFooter: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E8E8E8',
+    backgroundColor: '#ffffff',
+  },
+  modalFooterInside: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
+    marginTop: 0,
+  },
+  modalApplyButton: {
+    backgroundColor: '#2d6122',
+    borderRadius: 12,
+    marginBottom: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalApplyButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  filterSection: {
+    marginBottom: 28,
+  },
+  filterSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  filterSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2C3E50',
+    marginBottom: 16,
+  },
+  filterActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  filterActionButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#EFF1F3',
+  },
+  filterActionText: {
+    fontSize: 13,
+    color: '#2d6122',
+    fontWeight: '600',
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#95A5A6',
+    marginRight: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  checkboxChecked: {
+    backgroundColor: '#2d6122',
+    borderColor: '#2d6122',
+  },
+  checkboxLabel: {
+    fontSize: 16,
+    color: '#2C3E50',
+    flex: 1,
+    lineHeight: 22,
+  },
+  themeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  themeItemText: {
+    fontSize: 16,
+    color: '#2C3E50',
+    flex: 1,
+    lineHeight: 22,
+  },
+  themeItemTextSelected: {
+    color: '#2d6122',
+    fontWeight: '500',
+  },
+  noThemesText: {
+    fontSize: 14,
+    color: '#95A5A6',
+    fontStyle: 'italic',
+    paddingVertical: 12,
   },
 });
