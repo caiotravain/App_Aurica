@@ -331,7 +331,14 @@ export const MeasuresScreen: React.FC = () => {
     }
   };
 
-  const handleFormSubmit = () => {
+  const handleFormSubmit = async () => {
+    // Refresh variables to get updated data
+    if (selectedStakeholder) {
+      await loadVariables(selectedStakeholder.id);
+      // Wait a bit for state to update and filteredVariables to recalculate
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
     // Automatically go to next variable after successful submission
     const currentIndex = getCurrentVariableIndex();
     if (currentIndex >= 0 && currentIndex < filteredVariables.length - 1) {
@@ -524,7 +531,13 @@ export const MeasuresScreen: React.FC = () => {
               <View style={styles.formCardHeader}>
                 <TouchableOpacity 
                   style={styles.closeButton} 
-                  onPress={() => setSelectedVariable(null)}
+                  onPress={async () => {
+                    // Refresh variables when closing the form
+                    if (selectedStakeholder) {
+                      await loadVariables(selectedStakeholder.id);
+                    }
+                    setSelectedVariable(null);
+                  }}
                 >
                   <Ionicons name="close" size={24} color="#7f8c8d" />
                 </TouchableOpacity>
@@ -659,6 +672,15 @@ export const MeasuresScreen: React.FC = () => {
                   {showAllVariables 
                     ? 'Nenhuma variável encontrada' 
                     : 'Todas as variáveis já têm medida hoje'}
+                </Text>
+              </View>
+            )}
+            
+            {/* Footer */}
+            {filteredVariables.length > 0 && (
+              <View style={styles.variableListFooter}>
+                <Text style={styles.footerText}>
+                  {filteredVariables.length} {filteredVariables.length === 1 ? 'variável encontrada' : 'variáveis encontradas'}
                 </Text>
               </View>
             )}
@@ -1137,6 +1159,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#7f8c8d',
     textAlign: 'center',
+  },
+  variableListFooter: {
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#E8E8E8',
+    marginTop: 10,
+    backgroundColor: '#FAFAFA',
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '500',
   },
   logoutButton: {
     backgroundColor: '#dc3545',

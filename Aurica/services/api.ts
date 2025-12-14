@@ -80,6 +80,7 @@ export interface SignReportData {
   company: number;
   stakeholder: number;
   responsavel_nome: string;
+  responsavel_cpf?: string; // CPF do responsável da propriedade
   assinatura: string; // Base64 encoded image - responsavel signature
   assinatura_usuario: string; // Base64 encoded image - user signature (required)
   usuario_nome?: string; // User name (optional, will use authenticated user if not provided)

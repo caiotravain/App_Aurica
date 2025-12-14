@@ -20,6 +20,7 @@ import { apiService, Stakeholder, StakeholderVariable, SignReportData, API_BASE_
 import { useNetwork } from '../contexts/NetworkContext';
 import { SignatureCapture, SignatureCaptureRef } from './SignatureCapture';
 import { signatureStorageService } from '../services/signatureStorage';
+import { formatCpf, validateCpf, getCpfValidationError, cleanCpf } from '../utils/cpfValidation';
 
 interface ReportSignatureModalProps {
   visible: boolean;
@@ -35,6 +36,8 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
   variables,
 }) => {
   const [responsavelNome, setResponsavelNome] = useState('');
+  const [responsavelCpf, setResponsavelCpf] = useState('');
+  const [cpfError, setCpfError] = useState('');
   const [signatureImage, setSignatureImage] = useState<string | null>(null);
   const [userSignatureImage, setUserSignatureImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,14 +50,66 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
   const [isResponsavelSignatureCollapsed, setIsResponsavelSignatureCollapsed] = useState(false);
   const [isUserSignatureCollapsed, setIsUserSignatureCollapsed] = useState(false);
   const [currentStep, setCurrentStep] = useState(1); // 1: Variables, 2: Responsável, 3: User
+  const [selectedMaterialThemes, setSelectedMaterialThemes] = useState<Set<string>>(new Set());
   const signatureRef = React.useRef<SignatureCaptureRef>(null);
   const userSignatureRef = React.useRef<SignatureCaptureRef>(null);
   const { isOnline } = useNetwork();
 
   // Get all variables with their last measures
-  const variablesWithMeasures = variables.filter(
+  const allVariablesWithMeasures = variables.filter(
     (v) => v.latest_data && v.latest_data.value
   );
+
+  // Get unique material themes from variables with measures
+  const availableMaterialThemes = React.useMemo(() => {
+    const themes = new Set<string>();
+    allVariablesWithMeasures.forEach(variable => {
+      const theme = variable.indicator_variable.material_theme;
+      if (theme && theme.trim() !== '') {
+        themes.add(theme);
+      }
+    });
+    return Array.from(themes).sort();
+  }, [allVariablesWithMeasures]);
+
+  // Filter variables by selected material themes
+  const variablesWithMeasures = React.useMemo(() => {
+    if (selectedMaterialThemes.size === 0) {
+      return allVariablesWithMeasures;
+    }
+    return allVariablesWithMeasures.filter(variable => 
+      variable.indicator_variable.material_theme && 
+      selectedMaterialThemes.has(variable.indicator_variable.material_theme)
+    );
+  }, [allVariablesWithMeasures, selectedMaterialThemes]);
+
+  // Helper function to get material theme display name
+  const getMaterialThemeDisplayName = (theme: string): string => {
+    const themeNames: { [key: string]: string } = {
+      'aquisicao_animais_racao': 'Aquisição de Animais e Ração',
+      'cuidado_bem_estar_animal': 'Cuidado e Bem-Estar Animal',
+      'emissoes_gases_efeito_estufa': 'Emissões de Gases de Efeito Estufa',
+      'gestao_agua': 'Gestão de Água',
+      'bem-estar_animal': 'Bem-Estar Animal',
+      'gestao_energia': 'Gestão de Energia',
+      'impactos_cadeia_suprimentos_animal': 'Impactos Ambientais e Sociais da Cadeia de Suprimentos Animal',
+      'metricas_atividade': 'Métricas de Atividade',
+      'saude_seguranca_forca_trabalho': 'Saúde e Segurança da Força de Trabalho',
+      'seguranca_alimentar': 'Segurança Alimentar',
+      'uso_antibioticos': 'Uso de Antibióticos na Produção Animal',
+      'uso_solo_impactos_ecologicos': 'Uso do Solo e Impactos Ecológicos',
+      'adaptacao_resiliencia_climatica': 'Adaptação e resiliência climática',
+      'agua_efluentes': 'Água e efluentes',
+      'biodiversidade': 'Biodiversidade',
+      'comunidades_locais': 'Comunidades Locais',
+      'conversao_ecossistemas': 'Conversão de ecossistemas naturais',
+      'emissoes': 'Emissões',
+      'inocuidade_alimentos': 'Inocuidade dos alimentos',
+      'praticas_empregaticias': 'Práticas empregatícias',
+      'rastreabilidade_fornecedores': 'Rastreabilidade da cadeia de fornecedores',
+    };
+    return themeNames[theme] || theme;
+  };
 
   // Load saved user signature on mount
   useEffect(() => {
@@ -78,6 +133,7 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
       // Reset form when modal closes
       setCurrentStep(1);
       setResponsavelNome('');
+      setResponsavelCpf('');
       setSignatureImage(null);
       setUserSignatureImage(null);
       setSignatureMode(null);
@@ -85,6 +141,7 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
       setHasDrawnSignature(false);
       setHasDrawnUserSignature(false);
       setSaveUserSignature(false);
+      setSelectedMaterialThemes(new Set());
       // Reload saved signature
       signatureStorageService.getUserSignature().then((saved) => {
         if (saved) {
@@ -385,10 +442,21 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
         return;
       }
 
+      // Validate CPF if provided
+      if (responsavelCpf.trim()) {
+        const cpfValidationError = getCpfValidationError(responsavelCpf);
+        if (cpfValidationError) {
+          Alert.alert('CPF Inválido', cpfValidationError);
+          setIsLoading(false);
+          return;
+        }
+      }
+
       const signData: SignReportData = {
         company: stakeholder.company.id,
         stakeholder: stakeholder.id,
         responsavel_nome: responsavelNome.trim(),
+        responsavel_cpf: responsavelCpf.trim() ? cleanCpf(responsavelCpf) : undefined,
         assinatura: finalSignature,
         assinatura_usuario: finalUserSignature,
       };
@@ -547,28 +615,79 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
 
           <ScrollView
             style={styles.scrollView}
+            contentContainerStyle={styles.scrollViewContent}
             showsVerticalScrollIndicator={false}
             scrollEnabled={currentStep !== 2 || signatureMode !== 'draw'}
           >
             {/* Step 1: Last Measures */}
             {currentStep === 1 && (
               <View style={styles.stepContent}>
-                {variablesWithMeasures.length > 0 ? (
-                  <View style={styles.measuresSection}>
-                    <Text style={styles.sectionTitle}>Últimas Medidas Coletadas</Text>
-                    <Text style={styles.sectionSubtitle}>
-                      {variablesWithMeasures.length} variável(is) com medidas
-                    </Text>
-                    <ScrollView 
-                      style={styles.measuresScrollBox}
-                      nestedScrollEnabled={true}
-                      showsVerticalScrollIndicator={true}
-                    >
+                {allVariablesWithMeasures.length > 0 ? (
+                  <>
+                    {/* Material Theme Filter */}
+                    {availableMaterialThemes.length > 0 && (
+                      <View style={styles.filterSection}>
+                        <Text style={styles.filterLabel}>Filtrar por Tema Material:</Text>
+                        <ScrollView 
+                          horizontal 
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.filterScrollView}
+                        >
+                          {availableMaterialThemes.map((theme) => {
+                            const isSelected = selectedMaterialThemes.has(theme);
+                            return (
+                              <TouchableOpacity
+                                key={theme}
+                                style={[
+                                  styles.filterChip,
+                                  isSelected && styles.filterChipSelected
+                                ]}
+                                onPress={() => {
+                                  const newSet = new Set(selectedMaterialThemes);
+                                  if (isSelected) {
+                                    newSet.delete(theme);
+                                  } else {
+                                    newSet.add(theme);
+                                  }
+                                  setSelectedMaterialThemes(newSet);
+                                }}
+                              >
+                                <Text style={[
+                                  styles.filterChipText,
+                                  isSelected && styles.filterChipTextSelected
+                                ]}>
+                                  {getMaterialThemeDisplayName(theme)}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                        {selectedMaterialThemes.size > 0 && (
+                          <TouchableOpacity
+                            style={styles.clearFilterButton}
+                            onPress={() => setSelectedMaterialThemes(new Set())}
+                          >
+                            <Text style={styles.clearFilterText}>Limpar Filtros</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                    
+                    <View style={styles.measuresSection}>
+                      <Text style={styles.sectionTitle}>Últimas Medidas Coletadas</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        {variablesWithMeasures.length} variável(is) com medidas
+                      </Text>
+                      <ScrollView 
+                        style={styles.measuresScrollBox}
+                        nestedScrollEnabled={true}
+                        showsVerticalScrollIndicator={true}
+                      >
                       {variablesWithMeasures.map((variable) => (
                         <View key={variable.id} style={styles.measureItem}>
                           <View style={styles.measureHeader}>
                             <Text style={styles.measureVariableName}>
-                              {variable.indicator_variable.variable}
+                              {variable.indicator_variable.variable} 
                             </Text>
                           </View>
                           <View style={styles.measureDetails}>
@@ -594,8 +713,16 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
                           </View>
                         </View>
                       ))}
-                    </ScrollView>
-                  </View>
+                      </ScrollView>
+                    </View>
+                    {variablesWithMeasures.length === 0 && selectedMaterialThemes.size > 0 && (
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateText}>
+                          Nenhuma medida encontrada para os temas selecionados
+                        </Text>
+                      </View>
+                    )}
+                  </>
                 ) : (
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyStateText}>Nenhuma medida coletada ainda</Text>
@@ -620,6 +747,33 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
                     placeholderTextColor="#999"
                     editable={!isLoading}
                   />
+                </View>
+
+                {/* Responsável CPF */}
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>
+                    CPF do Responsável da Propriedade
+                  </Text>
+                  <TextInput
+                    style={[styles.input, cpfError ? styles.inputError : null]}
+                    value={responsavelCpf}
+                    onChangeText={(text) => {
+                      // Format CPF as user types
+                      const formatted = formatCpf(text);
+                      setResponsavelCpf(formatted);
+                      // Validate and set error
+                      const error = getCpfValidationError(formatted);
+                      setCpfError(error);
+                    }}
+                    placeholder="000.000.000-00"
+                    placeholderTextColor="#999"
+                    keyboardType="numeric"
+                    editable={!isLoading}
+                    maxLength={14} // 000.000.000-00 = 14 characters
+                  />
+                  {cpfError ? (
+                    <Text style={styles.errorText}>{cpfError}</Text>
+                  ) : null}
                 </View>
 
                 {/* Responsável Signature Section */}
@@ -927,7 +1081,10 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollViewContent: {
     paddingHorizontal: 20,
+    paddingBottom: 80,
   },
   measuresSection: {
     backgroundColor: '#f8f9fa',
@@ -968,12 +1125,63 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   measuresScrollBox: {
-    maxHeight: 300,
+    maxHeight: 500,
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e8f5e8',
     padding: 8,
+  },
+  filterSection: {
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2d6122',
+    marginBottom: 12,
+  },
+  filterScrollView: {
+    marginBottom: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#EFF1F3',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+  },
+  filterChipSelected: {
+    backgroundColor: '#e8f5e8',
+    borderColor: '#2d6122',
+    borderWidth: 2,
+  },
+  filterChipText: {
+    fontSize: 13,
+    color: '#7f8c8d',
+    fontWeight: '500',
+
+  },
+  filterChipTextSelected: {
+    color: '#2d6122',
+    fontWeight: '600',
+  },
+  clearFilterButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 8,
+  },
+  clearFilterText: {
+    fontSize: 12,
+    color: '#2d6122',
+    fontWeight: '500',
+    textDecorationLine: 'underline',
   },
   measureItem: {
     backgroundColor: '#fafbfa',
@@ -1070,6 +1278,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     backgroundColor: '#fafbfa',
     color: '#2d6122',
+  },
+  inputError: {
+    borderColor: '#e74c3c',
+    backgroundColor: '#fef5f5',
+  },
+  errorText: {
+    color: '#e74c3c',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
   },
   signatureSection: {
     marginBottom: 20,
@@ -1262,4 +1480,5 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
 });
+
 

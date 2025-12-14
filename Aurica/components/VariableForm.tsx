@@ -141,6 +141,7 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
         <View style={styles.formContent}>
           <View style={styles.formHeader}>
             <Text style={styles.variableTitle}>{variable.indicator_variable.variable}</Text>
+            <Text style={styles.indicatorTitle}>{variable.indicator_variable.indicator.title}</Text>
           </View>
           
           
@@ -318,6 +319,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     color: '#2d6122', // Aurica main color
+    marginBottom: 4,
+  },
+  indicatorTitle: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#7f8c8d',
+    marginTop: 2,
   },
   infoRow: {
     flexDirection: 'row',
