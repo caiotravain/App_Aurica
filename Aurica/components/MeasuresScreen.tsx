@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { apiService, Stakeholder, StakeholderVariable } from '../services/api';
+import { offlineStorageService, PendingUpdate } from '../services/offlineStorage';
 import { LoginScreen } from './LoginScreen';
 import { VariableForm } from './VariableForm';
 import { ReportSignatureModal } from './ReportSignatureModal';
@@ -38,6 +39,7 @@ export const MeasuresScreen: React.FC = () => {
   const [variableSearchQuery, setVariableSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [selectedMaterialThemes, setSelectedMaterialThemes] = useState<Set<string>>(new Set());
+  const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -86,6 +88,15 @@ export const MeasuresScreen: React.FC = () => {
       const data = await apiService.getStakeholderVariables(stakeholderId);
       setVariables(data);
       
+      // Load pending updates to check for offline-sent variables
+      try {
+        const updates = await offlineStorageService.getPendingUpdates();
+        setPendingUpdates(updates);
+      } catch (error) {
+        console.error('Error loading pending updates:', error);
+        setPendingUpdates([]);
+      }
+      
       if (data.length === 0 && isOnline) {
         // Only show alert if we're online and got no data
         Alert.alert('Erro', 'Falha ao carregar variáveis');
@@ -123,28 +134,19 @@ export const MeasuresScreen: React.FC = () => {
     }
   };
 
-  // Check if a variable has a measurement today (using local timezone)
-  const hasMeasurementToday = (variable: StakeholderVariable): boolean => {
-    if (!variable.latest_data || !variable.latest_data.measurement_date) {
-      return false;
-    }
-
+  // Helper function to check if a date string is today
+  const isDateToday = (dateStr: string): boolean => {
+    if (!dateStr) return false;
+    
     try {
-      // Parse the measurement date string (format: DD/MM/YYYY or YYYY-MM-DD)
-      const dateStr = variable.latest_data.measurement_date.trim();
-      
-      // Extract just the date part (before any space or T)
-      const dateOnly = dateStr.split(' ')[0].split('T')[0];
+      const dateOnly = dateStr.trim().split(' ')[0].split('T')[0];
       
       let year: number, month: number, day: number;
       
       // Check if it's DD/MM/YYYY format
       if (dateOnly.includes('/')) {
         const parts = dateOnly.split('/');
-        if (parts.length !== 3) {
-          console.warn('Invalid date format (DD/MM/YYYY):', dateStr);
-          return false;
-        }
+        if (parts.length !== 3) return false;
         day = parseInt(parts[0], 10);
         month = parseInt(parts[1], 10);
         year = parseInt(parts[2], 10);
@@ -152,21 +154,16 @@ export const MeasuresScreen: React.FC = () => {
       // Check if it's YYYY-MM-DD format
       else if (dateOnly.includes('-')) {
         const parts = dateOnly.split('-');
-        if (parts.length !== 3) {
-          console.warn('Invalid date format (YYYY-MM-DD):', dateStr);
-          return false;
-        }
+        if (parts.length !== 3) return false;
         year = parseInt(parts[0], 10);
         month = parseInt(parts[1], 10);
         day = parseInt(parts[2], 10);
       } else {
-        console.warn('Unknown date format:', dateStr);
         return false;
       }
       
       // Validate parsed values
       if (isNaN(year) || isNaN(month) || isNaN(day)) {
-        console.warn('Invalid date values:', { year, month, day, dateStr });
         return false;
       }
       
@@ -177,13 +174,35 @@ export const MeasuresScreen: React.FC = () => {
       const todayDay = today.getDate();
       
       // Compare year, month, and day in local timezone
-      const isToday = year === todayYear && month === todayMonth && day === todayDay;
-      
-      return isToday;
+      return year === todayYear && month === todayMonth && day === todayDay;
     } catch (error) {
-      console.error('Error parsing measurement date:', error, variable.latest_data.measurement_date);
+      console.error('Error parsing date:', error, dateStr);
       return false;
     }
+  };
+
+  // Check if a variable has a measurement today (using local timezone)
+  // This checks both latest_data and pending offline updates
+  const hasMeasurementToday = (variable: StakeholderVariable): boolean => {
+    // First check latest_data from server
+    if (variable.latest_data?.measurement_date) {
+      if (isDateToday(variable.latest_data.measurement_date)) {
+        return true;
+      }
+    }
+
+    // Then check pending offline updates for this variable
+    const pendingForVariable = pendingUpdates.filter(
+      update => update.stakeholder_variable_id === variable.id
+    );
+    
+    for (const update of pendingForVariable) {
+      if (isDateToday(update.measurement_date)) {
+        return true;
+      }
+    }
+
+    return false;
   };
 
   // Get unique material themes from variables
@@ -307,10 +326,11 @@ export const MeasuresScreen: React.FC = () => {
       searchQuery: variableSearchQuery,
       total: variables.length,
       filtered: filtered.length,
+      pendingUpdates: pendingUpdates.length,
       today: new Date().toLocaleDateString('pt-BR')
     });
     return filtered;
-  }, [variables, showAllVariables, variableSearchQuery, selectedMaterialThemes]);
+  }, [variables, showAllVariables, variableSearchQuery, selectedMaterialThemes, pendingUpdates]);
 
   const getCurrentVariableIndex = () => {
     if (!selectedVariable) return -1;
@@ -356,6 +376,13 @@ export const MeasuresScreen: React.FC = () => {
       await loadVariables(selectedStakeholder.id);
     } else {
       await loadStakeholders();
+      // Also reload pending updates when refreshing stakeholders list
+      try {
+        const updates = await offlineStorageService.getPendingUpdates();
+        setPendingUpdates(updates);
+      } catch (error) {
+        console.error('Error loading pending updates:', error);
+      }
     }
     setIsRefreshing(false);
   };

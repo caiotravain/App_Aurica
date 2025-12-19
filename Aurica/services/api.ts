@@ -76,6 +76,16 @@ export interface MeasureData {
   };
 }
 
+export interface ReportType {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ReportTypesResponse {
+  report_types: ReportType[];
+}
+
 export interface SignReportData {
   company: number;
   stakeholder: number;
@@ -84,6 +94,7 @@ export interface SignReportData {
   assinatura: string; // Base64 encoded image - responsavel signature
   assinatura_usuario: string; // Base64 encoded image - user signature (required)
   usuario_nome?: string; // User name (optional, will use authenticated user if not provided)
+  report_type?: string; // Tipo de relatório (id do report_type)
 }
 
 export interface SignReportResponse {
@@ -94,6 +105,7 @@ export interface SignReportResponse {
   warning?: string;
   error?: string;
   details?: any;
+  report_type?: string;
 }
 
 class ApiService {
@@ -624,6 +636,42 @@ class ApiService {
     }
     
     return { success: false, error: 'Network error. Please check your connection and try again.' };
+  }
+
+  // Get available report types
+  async getReportTypes(): Promise<ReportTypesResponse> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/reports/types/`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': this.baseURL,
+        },
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data;
+      } else {
+        console.error('Get report types error response:', response.status);
+        // Return default report type on error
+        return {
+          report_types: [
+            { id: 'normal', name: 'Relatório Completo', description: 'Relatório com todas as métricas' }
+          ]
+        };
+      }
+    } catch (error) {
+      console.error('Get report types error:', error);
+      // Return default report type on error
+      return {
+        report_types: [
+          { id: 'normal', name: 'Relatório Completo', description: 'Relatório com todas as métricas' }
+        ]
+      };
+    }
   }
 
   // Sign report and generate PDF

@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
-import { MeasureData, Stakeholder, StakeholderVariable } from './api';
+import { MeasureData, Stakeholder, StakeholderVariable, ReportType } from './api';
 
 export interface PendingUpdate {
   id: number;
@@ -66,6 +66,7 @@ class OfflineStorageService {
           variable TEXT NOT NULL,
           unit TEXT,
           response_type TEXT NOT NULL,
+          material_theme TEXT,
           indicator_title TEXT NOT NULL,
           sdg_number INTEGER NOT NULL,
           sdg_title TEXT NOT NULL,
@@ -80,6 +81,16 @@ class OfflineStorageService {
         );
       `);
 
+      // Create report_types table
+      await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS report_types (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          cached_at TEXT NOT NULL
+        );
+      `);
+
       // Create indexes for faster queries
       await this.db.execAsync(`
         CREATE INDEX IF NOT EXISTS idx_pending_updates_created_at 
@@ -90,6 +101,20 @@ class OfflineStorageService {
         CREATE INDEX IF NOT EXISTS idx_stakeholder_variables_stakeholder_id 
         ON stakeholder_variables(stakeholder_id);
       `);
+
+      // Migration: Add material_theme column if it doesn't exist
+      try {
+        await this.db.execAsync(`
+          ALTER TABLE stakeholder_variables 
+          ADD COLUMN material_theme TEXT;
+        `);
+        console.log('Added material_theme column to stakeholder_variables table');
+      } catch (error: any) {
+        // Column might already exist, which is fine
+        if (!error?.message?.includes('duplicate column')) {
+          console.log('material_theme column already exists or migration not needed');
+        }
+      }
 
       this.isInitialized = true;
       console.log('Offline storage initialized successfully');
@@ -391,13 +416,13 @@ class OfflineStorageService {
         await this.db.runAsync(
           `INSERT OR REPLACE INTO stakeholder_variables (
             id, stakeholder_id, status, current_value, target_value,
-            variable, unit, response_type, indicator_title,
+            variable, unit, response_type, material_theme, indicator_title,
             sdg_number, sdg_title,
             latest_value, latest_measurement_date, latest_data_quality,
             latest_has_attachments, latest_file_description, latest_created_at,
             cached_at
           )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             variable.id,
             stakeholderId,
@@ -407,6 +432,7 @@ class OfflineStorageService {
             variable.indicator_variable.variable,
             variable.indicator_variable.unit || null,
             variable.indicator_variable.response_type,
+            variable.indicator_variable.material_theme || null,
             variable.indicator_variable.indicator.title,
             variable.indicator_variable.indicator.sdg.sdg_number,
             variable.indicator_variable.indicator.sdg.title,
@@ -452,6 +478,7 @@ class OfflineStorageService {
           variable: row.variable,
           unit: row.unit || '',
           response_type: row.response_type,
+          material_theme: row.material_theme || '',
           indicator: {
             title: row.indicator_title,
             sdg: {
@@ -475,6 +502,53 @@ class OfflineStorageService {
     }
   }
 
+  async cacheReportTypes(reportTypes: ReportType[]): Promise<void> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const now = new Date().toISOString();
+      
+      // Clear existing report types
+      await this.db.runAsync(`DELETE FROM report_types`);
+      
+      // Insert new report types
+      for (const reportType of reportTypes) {
+        await this.db.runAsync(
+          `INSERT OR REPLACE INTO report_types (id, name, description, cached_at) VALUES (?, ?, ?, ?)`,
+          [reportType.id, reportType.name, reportType.description, now]
+        );
+      }
+      
+      console.log(`Cached ${reportTypes.length} report types`);
+    } catch (error) {
+      console.error('Failed to cache report types:', error);
+      throw error;
+    }
+  }
+
+  async getCachedReportTypes(): Promise<ReportType[]> {
+    await this.initialize();
+    
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      const result = await this.db.getAllAsync<ReportType>(
+        `SELECT id, name, description FROM report_types ORDER BY id`
+      );
+      
+      return result || [];
+    } catch (error) {
+      console.error('Failed to get cached report types:', error);
+      return [];
+    }
+  }
+
   async clearAllCache(): Promise<void> {
     await this.initialize();
     
@@ -485,6 +559,7 @@ class OfflineStorageService {
     try {
       await this.db.runAsync(`DELETE FROM stakeholders`);
       await this.db.runAsync(`DELETE FROM stakeholder_variables`);
+      await this.db.runAsync(`DELETE FROM report_types`);
       console.log('Cleared all cached data');
     } catch (error) {
       console.error('Failed to clear cache:', error);

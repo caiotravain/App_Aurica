@@ -16,11 +16,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import { apiService, Stakeholder, StakeholderVariable, SignReportData, API_BASE_URL } from '../services/api';
+import { apiService, Stakeholder, StakeholderVariable, SignReportData, API_BASE_URL, ReportType } from '../services/api';
 import { useNetwork } from '../contexts/NetworkContext';
 import { SignatureCapture, SignatureCaptureRef } from './SignatureCapture';
 import { signatureStorageService } from '../services/signatureStorage';
 import { formatCpf, validateCpf, getCpfValidationError, cleanCpf } from '../utils/cpfValidation';
+import { offlineStorageService } from '../services/offlineStorage';
 
 interface ReportSignatureModalProps {
   visible: boolean;
@@ -51,6 +52,8 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
   const [isUserSignatureCollapsed, setIsUserSignatureCollapsed] = useState(false);
   const [currentStep, setCurrentStep] = useState(1); // 1: Variables, 2: Responsável, 3: User
   const [selectedMaterialThemes, setSelectedMaterialThemes] = useState<Set<string>>(new Set());
+  const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
+  const [selectedReportType, setSelectedReportType] = useState<string>('');
   const signatureRef = React.useRef<SignatureCaptureRef>(null);
   const userSignatureRef = React.useRef<SignatureCaptureRef>(null);
   const { isOnline } = useNetwork();
@@ -111,7 +114,7 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
     return themeNames[theme] || theme;
   };
 
-  // Load saved user signature on mount
+  // Load saved user signature and report types on mount
   useEffect(() => {
     const loadSavedSignature = async () => {
       try {
@@ -125,8 +128,40 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
         console.error('Error loading saved signature:', error);
       }
     };
+    
+    const loadReportTypes = async () => {
+      try {
+        const cachedTypes = await offlineStorageService.getCachedReportTypes();
+        if (cachedTypes && cachedTypes.length > 0) {
+          setReportTypes(cachedTypes);
+          // Set first report type as default
+          if (cachedTypes.length > 0) {
+            setSelectedReportType(cachedTypes[0].id);
+          }
+        } else {
+          // If no cached types, try to fetch from API
+          if (isOnline) {
+            try {
+              const response = await apiService.getReportTypes();
+              if (response.report_types && response.report_types.length > 0) {
+                setReportTypes(response.report_types);
+                setSelectedReportType(response.report_types[0].id);
+                // Cache them
+                await offlineStorageService.cacheReportTypes(response.report_types);
+              }
+            } catch (error) {
+              console.error('Error fetching report types:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading report types:', error);
+      }
+    };
+    
     loadSavedSignature();
-  }, []);
+    loadReportTypes();
+  }, [isOnline]);
 
   useEffect(() => {
     if (!visible) {
@@ -459,6 +494,7 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
         responsavel_cpf: responsavelCpf.trim() ? cleanCpf(responsavelCpf) : undefined,
         assinatura: finalSignature,
         assinatura_usuario: finalUserSignature,
+        report_type: selectedReportType || undefined,
       };
 
       console.log('Submitting signature data:', {
@@ -1023,13 +1059,49 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
               </Text>
             )}
 
+            {/* Report Type Selection - Only on last step */}
+            {currentStep === 3 && reportTypes.length > 0 && (
+              <View style={styles.reportTypeSection}>
+                <Text style={styles.label}>
+                  Tipo de Relatório <Text style={styles.required}>*</Text>
+                </Text>
+                {reportTypes.map((reportType) => (
+                  <TouchableOpacity
+                    key={reportType.id}
+                    style={[
+                      styles.reportTypeOption,
+                      selectedReportType === reportType.id && styles.reportTypeOptionSelected
+                    ]}
+                    onPress={() => setSelectedReportType(reportType.id)}
+                  >
+                    <View style={styles.reportTypeRadio}>
+                      {selectedReportType === reportType.id && (
+                        <View style={styles.reportTypeRadioSelected} />
+                      )}
+                    </View>
+                    <View style={styles.reportTypeInfo}>
+                      <Text style={[
+                        styles.reportTypeName,
+                        selectedReportType === reportType.id && styles.reportTypeNameSelected
+                      ]}>
+                        {reportType.name}
+                      </Text>
+                      <Text style={styles.reportTypeDescription}>
+                        {reportType.description}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             {/* Submit Button - Only on last step, below everything */}
             {currentStep === 3 && (
               <View style={styles.submitButtonContainer}>
                 <TouchableOpacity
                   style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
                   onPress={handleSubmit}
-                  disabled={isLoading || !isOnline}
+                  disabled={isLoading || !isOnline || !selectedReportType}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#fff" />
@@ -1478,6 +1550,57 @@ const styles = StyleSheet.create({
   },
   navButtonTextPrimary: {
     color: '#fff',
+  },
+  reportTypeSection: {
+    marginTop: 20,
+    marginBottom: 10,
+    paddingHorizontal: 20,
+  },
+  reportTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    marginBottom: 10,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  reportTypeOptionSelected: {
+    borderColor: '#2E7D32',
+    backgroundColor: '#f0f8f0',
+  },
+  reportTypeRadio: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#2E7D32',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reportTypeRadioSelected: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2E7D32',
+  },
+  reportTypeInfo: {
+    flex: 1,
+  },
+  reportTypeName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  reportTypeNameSelected: {
+    color: '#2E7D32',
+  },
+  reportTypeDescription: {
+    fontSize: 13,
+    color: '#666',
   },
 });
 

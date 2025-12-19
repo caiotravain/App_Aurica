@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import * as SecureStore from 'expo-secure-store';
 import NetInfo from '@react-native-community/netinfo';
 import { apiService, LoginCredentials } from '../services/api';
+import { offlineStorageService } from '../services/offlineStorage';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -198,6 +199,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setIsAuthenticated(true);
           // Store credentials for persistent login
           await storeCredentials(credentials.username, credentials.password);
+          
+          // Fetch and cache report types after successful login
+          try {
+            const reportTypesResponse = await apiService.getReportTypes();
+            if (reportTypesResponse.report_types) {
+              await offlineStorageService.cacheReportTypes(reportTypesResponse.report_types);
+              console.log('Report types cached successfully');
+            }
+          } catch (error) {
+            console.error('Failed to fetch and cache report types:', error);
+            // Don't fail login if report types fetch fails
+          }
+          
           return { success: true };
         } else {
           return { success: false, error: result.error || 'Login failed' };
