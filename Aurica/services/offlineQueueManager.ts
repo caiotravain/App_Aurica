@@ -48,6 +48,18 @@ class OfflineQueueManager {
     });
   }
 
+  // Notify listeners that queue has changed (item added/removed)
+  private async notifyQueueChanged(): Promise<void> {
+    // Create a minimal result to trigger UI update
+    const result: QueueProcessingResult = {
+      successCount: 0,
+      failureCount: 0,
+      totalProcessed: 0,
+      errors: []
+    };
+    this.notifyListeners(result);
+  }
+
   // Start automatic processing when online
   startAutoProcessing(): void {
     if (this.processingInterval) {
@@ -147,14 +159,16 @@ class OfflineQueueManager {
         } : undefined
       };
 
-      // Attempt to send the update
-      const apiResult = await apiService.updateMeasureData(measureData);
+      // Attempt to send the update (use send-only method to avoid re-queueing)
+      const apiResult = await apiService.updateMeasureDataOnline(measureData);
 
       if (apiResult.success) {
         // Success - remove from queue
         await offlineStorageService.removeUpdate(update.id);
         result.successCount++;
-        console.log(`Successfully processed update ID: ${update.id}`);
+        console.log(`Successfully processed and removed from queue: ${update.id}`);
+        // Notify that queue changed (item removed)
+        await this.notifyQueueChanged();
       } else {
         // Failure - increment retry count and keep in queue for next attempt
         const newRetryCount = update.retry_count + 1;
@@ -226,7 +240,12 @@ class OfflineQueueManager {
   // Queue a new update
   async queueUpdate(measureData: MeasureData): Promise<number> {
     try {
-      return await offlineStorageService.queueUpdate(measureData);
+      const queueId = await offlineStorageService.queueUpdate(measureData);
+      // Notify listeners that a new item was queued
+      this.notifyQueueChanged().catch(err => {
+        console.error('Error notifying queue change:', err);
+      });
+      return queueId;
     } catch (error) {
       console.error('Failed to queue update:', error);
       throw error;

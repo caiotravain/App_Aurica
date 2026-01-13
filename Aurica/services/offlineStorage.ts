@@ -1,6 +1,6 @@
-import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
-import { MeasureData, Stakeholder, StakeholderVariable, ReportType } from './api';
+import * as SQLite from 'expo-sqlite';
+import { MeasureData, ReportType, Stakeholder, StakeholderVariable } from './api';
 
 export interface PendingUpdate {
   id: number;
@@ -380,7 +380,7 @@ class OfflineStorageService {
 
     try {
       const result = await this.db.getAllAsync(
-        `SELECT * FROM stakeholders ORDER BY name ASC`
+        `SELECT * FROM stakeholders`
       );
       
       return result.map((row: any) => ({
@@ -464,8 +464,7 @@ class OfflineStorageService {
     try {
       const result = await this.db.getAllAsync(
         `SELECT * FROM stakeholder_variables 
-         WHERE stakeholder_id = ? 
-         ORDER BY variable ASC`,
+         WHERE stakeholder_id = ?`,
         [stakeholderId]
       );
       

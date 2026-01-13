@@ -79,29 +79,17 @@ export const VariableForm: React.FC<VariableFormProps> = ({ variable, onSuccess 
       const result = await apiService.updateMeasureData(measureData, isOnline);
 
       if (result.success) {
-        if (result.queued) {
-          Alert.alert(
-            'Salvo Offline',
-            'Medida salva localmente e será enviada quando a conexão for restaurada.',
-            [
-              {
-                text: 'OK',
-                onPress: onSuccess,
-              },
-            ]
-          );
-        } else {
-          Alert.alert(
-            'Sucesso',
-            'Medida adicionada com sucesso!',
-            [
-              {
-                text: 'OK',
-                onPress: onSuccess,
-              },
-            ]
-          );
-        }
+        // Always queued now - background processor handles syncing
+        Alert.alert(
+          'Salvo',
+          'Medida salva! Será sincronizada automaticamente em segundo plano.',
+          [
+            {
+              text: 'OK',
+              onPress: onSuccess,
+            },
+          ]
+        );
       } else {
         Alert.alert('Erro', result.error || 'Falha ao adicionar medida');
       }

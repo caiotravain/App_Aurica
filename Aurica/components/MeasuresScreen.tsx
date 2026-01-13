@@ -18,8 +18,8 @@ import { useNetwork } from '../contexts/NetworkContext';
 import { apiService, Stakeholder, StakeholderVariable } from '../services/api';
 import { offlineStorageService, PendingUpdate } from '../services/offlineStorage';
 import { LoginScreen } from './LoginScreen';
-import { VariableForm } from './VariableForm';
 import { ReportSignatureModal } from './ReportSignatureModal';
+import { VariableForm } from './VariableForm';
 
 export const MeasuresScreen: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
@@ -50,12 +50,24 @@ export const MeasuresScreen: React.FC = () => {
   const loadStakeholders = async () => {
     try {
       setIsLoading(true);
-      const data = await apiService.getStakeholders();
-      setStakeholders(data);
-      setFilteredStakeholders(data);
+      const { cached, fresh } = await apiService.getStakeholders();
       
-      if (data.length === 0 && isOnline) {
-        // Only show alert if we're online and got no data
+      // Show cached data immediately
+      setStakeholders(cached);
+      setFilteredStakeholders(cached);
+      
+      // Update with fresh data when available (background)
+      fresh.then(freshData => {
+        if (freshData.length > 0 || cached.length === 0) {
+          setStakeholders(freshData);
+          setFilteredStakeholders(freshData);
+        }
+      }).catch(err => {
+        console.error('Error updating with fresh stakeholders:', err);
+      });
+      
+      if (cached.length === 0 && isOnline) {
+        // Only show alert if we're online and got no cached data
         Alert.alert('Erro', 'Falha ao carregar stakeholders');
       }
     } catch (error) {
@@ -85,8 +97,21 @@ export const MeasuresScreen: React.FC = () => {
   const loadVariables = async (stakeholderId: number) => {
     try {
       setIsLoading(true);
-      const data = await apiService.getStakeholderVariables(stakeholderId);
-      setVariables(data);
+      const result = await apiService.getStakeholderVariables(stakeholderId);
+      const cached: StakeholderVariable[] = result.cached;
+      const fresh: Promise<StakeholderVariable[]> = result.fresh;
+      
+      // Show cached data immediately
+      setVariables(cached);
+      
+      // Update with fresh data when available (background)
+      fresh.then((freshData: StakeholderVariable[]) => {
+        if (freshData.length > 0 || cached.length === 0) {
+          setVariables(freshData);
+        }
+      }).catch(err => {
+        console.error('Error updating with fresh variables:', err);
+      });
       
       // Load pending updates to check for offline-sent variables
       try {
@@ -97,8 +122,8 @@ export const MeasuresScreen: React.FC = () => {
         setPendingUpdates([]);
       }
       
-      if (data.length === 0 && isOnline) {
-        // Only show alert if we're online and got no data
+      if (cached.length === 0 && isOnline) {
+        // Only show alert if we're online and got no cached data
         Alert.alert('Erro', 'Falha ao carregar variáveis');
       }
     } catch (error) {

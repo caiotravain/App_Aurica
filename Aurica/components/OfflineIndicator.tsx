@@ -62,10 +62,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ onPress }) =
   const getStatusText = () => {
     if (!isOnline) {
       return pendingCount > 0 
-        ? `${pendingCount} atualização(ões) aguardando conexão`
+        ? `${pendingCount} medida(s) aguardando envio`
         : 'Sem conexão com a internet';
     } else if (pendingCount > 0) {
-      return `${pendingCount} atualização(ões) sendo enviadas...`;
+      return `${pendingCount} medida(s) pendente(s)`;
     }
     return '';
   };

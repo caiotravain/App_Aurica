@@ -122,6 +122,10 @@ class ApiService {
   // Get CSRF token from Django
   private async getCSRFToken(): Promise<string | null> {
     try {
+      // Add timeout to fail slow requests (20 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const response = await fetch(`${this.baseURL}/login/`, {
         method: 'GET',
         credentials: 'include',
@@ -130,7 +134,10 @@ class ApiService {
           'User-Agent': 'Mozilla/5.0 (compatible; ReactNative/1.0)',
           'Referer': this.baseURL,
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
       console.log('CSRF token response status:', response.status);
       console.log('CSRF token response headers:', Object.fromEntries(response.headers.entries()));
       
@@ -162,6 +169,10 @@ class ApiService {
         return null;
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('CSRF token fetch timeout (5s)');
+        return null;
+      }
       console.error('Error getting CSRF token:', error);
       return null;
     }
@@ -360,20 +371,37 @@ class ApiService {
   }
 
   // Get accessible stakeholders for the current user
-  async getStakeholders(): Promise<Stakeholder[]> {
+  // Always returns cached data first, then tries to update in background
+  // Returns object with cached data and a promise that resolves with fresh data (if available)
+  async getStakeholders(): Promise<{ cached: Stakeholder[]; fresh: Promise<Stakeholder[]> }> {
+    // Always return cached data first (show immediately)
+    let cached: Stakeholder[] = [];
     try {
-      // Check network status
+      cached = await offlineStorageService.getCachedStakeholders();
+      console.log(`Loaded ${cached.length} stakeholders from cache`);
+    } catch (cacheError) {
+      console.error('Failed to get cached stakeholders:', cacheError);
+    }
+
+    // Start background fetch and return promise for fresh data
+    const freshPromise = this.fetchStakeholdersInBackground();
+
+    return { cached, fresh: freshPromise };
+  }
+
+  // Fetch stakeholders from server and update cache (background operation)
+  private async fetchStakeholdersInBackground(): Promise<Stakeholder[]> {
+    try {
       const networkState = await NetInfo.fetch();
       const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
 
       if (!isOnline) {
-        // Offline: Return cached stakeholders
-        console.log('Offline: Loading stakeholders from cache');
-        const cached = await offlineStorageService.getCachedStakeholders();
-        return cached;
+        console.log('Offline: Skipping background fetch of stakeholders');
+        // Return cached data if offline
+        return await offlineStorageService.getCachedStakeholders();
       }
 
-      // Online: Fetch from server
+      console.log('Fetching stakeholders from server in background...');
       const response = await fetch(`${this.baseURL}/stakeholders/api/`, {
         method: 'GET',
         credentials: 'include',
@@ -383,63 +411,64 @@ class ApiService {
         },
       });
 
-      console.log('Stakeholders API response status:', response.status);
-      console.log('Stakeholders API response headers:', response.headers);
-
       if (response.ok) {
         const data = await response.json();
         const stakeholders = data.stakeholders || [];
-        console.log('Stakeholders API response data:', stakeholders);
+        console.log(`Fetched ${stakeholders.length} stakeholders from server, updating cache`);
         
-        // Cache the stakeholders
+        // Update cache
         try {
           await offlineStorageService.cacheStakeholders(stakeholders);
+          console.log('Stakeholders cache updated');
         } catch (cacheError) {
           console.error('Failed to cache stakeholders:', cacheError);
         }
         
         return stakeholders;
       } else {
-        const errorText = await response.text();
-        console.error('Stakeholders API error response:', errorText);
-        
-        // Fallback to cache on error
-        const cached = await offlineStorageService.getCachedStakeholders();
-        return cached;
+        console.error('Stakeholders API error response:', response.status);
+        // Return cached on error
+        return await offlineStorageService.getCachedStakeholders();
       }
     } catch (error) {
-      console.error('Get stakeholders error:', error);
-      
-      // On error, try to return cached data
-      try {
-        const cached = await offlineStorageService.getCachedStakeholders();
-        if (cached.length > 0) {
-          console.log('Using cached stakeholders due to error');
-          return cached;
-        }
-      } catch (cacheError) {
-        console.error('Failed to get cached stakeholders:', cacheError);
-      }
-      
-      return [];
+      console.error('Background fetch stakeholders error:', error);
+      // Return cached on error
+      return await offlineStorageService.getCachedStakeholders();
     }
   }
 
   // Get stakeholder variables for a specific stakeholder
-  async getStakeholderVariables(stakeholderId: number): Promise<StakeholderVariable[]> {
+  // Always returns cached data first, then tries to update in background
+  // Returns object with cached data and a promise that resolves with fresh data (if available)
+  async getStakeholderVariables(stakeholderId: number): Promise<{ cached: StakeholderVariable[]; fresh: Promise<StakeholderVariable[]> }> {
+    // Always return cached data first (show immediately)
+    let cached: StakeholderVariable[] = [];
     try {
-      // Check network status
+      cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
+      console.log(`Loaded ${cached.length} variables for stakeholder ${stakeholderId} from cache`);
+    } catch (cacheError) {
+      console.error('Failed to get cached stakeholder variables:', cacheError);
+    }
+
+    // Start background fetch and return promise for fresh data
+    const freshPromise = this.fetchStakeholderVariablesInBackground(stakeholderId);
+
+    return { cached, fresh: freshPromise };
+  }
+
+  // Fetch stakeholder variables from server and update cache (background operation)
+  private async fetchStakeholderVariablesInBackground(stakeholderId: number): Promise<StakeholderVariable[]> {
+    try {
       const networkState = await NetInfo.fetch();
       const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
 
       if (!isOnline) {
-        // Offline: Return cached variables
-        console.log(`Offline: Loading variables for stakeholder ${stakeholderId} from cache`);
-        const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
-        return cached;
+        console.log(`Offline: Skipping background fetch of variables for stakeholder ${stakeholderId}`);
+        // Return cached data if offline
+        return await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
       }
 
-      // Online: Fetch from server
+      console.log(`Fetching variables for stakeholder ${stakeholderId} from server in background...`);
       const response = await fetch(`${this.baseURL}/stakeholders/get-stakeholder-variables/?stakeholder_id=${stakeholderId}`, {
         method: 'GET',
         credentials: 'include',
@@ -452,190 +481,158 @@ class ApiService {
       if (response.ok) {
         const data = await response.json();
         const variables = data.variables || [];
+        console.log(`Fetched ${variables.length} variables for stakeholder ${stakeholderId} from server, updating cache`);
         
-        // Cache the variables
+        // Update cache
         try {
           await offlineStorageService.cacheStakeholderVariables(stakeholderId, variables);
+          console.log(`Variables cache updated for stakeholder ${stakeholderId}`);
         } catch (cacheError) {
           console.error('Failed to cache stakeholder variables:', cacheError);
         }
         
         return variables;
+      } else {
+        console.error(`Variables API error response for stakeholder ${stakeholderId}:`, response.status);
+        // Return cached on error
+        return await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
       }
-      
-      // Fallback to cache on error
-      const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
-      return cached;
     } catch (error) {
-      console.error('Get stakeholder variables error:', error);
-      
-      // On error, try to return cached data
-      try {
-        const cached = await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
-        if (cached.length > 0) {
-          console.log(`Using cached variables for stakeholder ${stakeholderId} due to error`);
-          return cached;
-        }
-      } catch (cacheError) {
-        console.error('Failed to get cached stakeholder variables:', cacheError);
-      }
-      
-      return [];
+      console.error('Background fetch stakeholder variables error:', error);
+      // Return cached on error
+      return await offlineStorageService.getCachedStakeholderVariables(stakeholderId);
     }
   }
 
   // Update measure data for a stakeholder variable with offline support
+  // Always queues immediately and returns - background processor handles all syncing
   async updateMeasureData(measureData: MeasureData, isOnline: boolean = true): Promise<{ success: boolean; error?: string; queued?: boolean }> {
-    // If offline, queue the update
-    if (!isOnline) {
-      try {
-        const queueId = await offlineQueueManager.queueUpdate(measureData);
-        return { 
-          success: true, 
-          error: undefined, 
-          queued: true 
-        };
-      } catch (error) {
-        console.error('Failed to queue update:', error);
-        return { 
-          success: false, 
-          error: 'Failed to save update offline. Please try again.' 
-        };
+    // Always queue immediately - no waiting for network
+    try {
+      const queueId = await offlineQueueManager.queueUpdate(measureData);
+      console.log(`Queued measurement locally with ID: ${queueId} - background processor will sync`);
+      
+      // Trigger background processing if online (non-blocking)
+      if (isOnline) {
+        // Don't await - let it process in background
+        offlineQueueManager.processQueue().catch(err => {
+          console.error('Background queue processing error:', err);
+        });
       }
+      
+      return { 
+        success: true, 
+        error: undefined, 
+        queued: true 
+      };
+    } catch (error) {
+      console.error('Failed to queue update locally:', error);
+      return { 
+        success: false, 
+        error: 'Failed to save update locally. Please try again.' 
+      };
     }
-
-    // If online, proceed with normal API call
-    return this.updateMeasureDataOnline(measureData);
   }
 
   // Update measure data for a stakeholder variable (online only)
+  // Single attempt only - data already saved locally, background queue handles retries
   async updateMeasureDataOnline(measureData: MeasureData): Promise<{ success: boolean; error?: string }> {
-    let attempt = 0;
-    let lastError: any = null;
-
-    while (true) {
-      attempt++;
-      try {
-        // Check network status before attempting
-        const networkState = await NetInfo.fetch();
-        const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
-        
-        if (!isOnline) {
-          console.log(`Attempt ${attempt}: No network connection, cannot retry`);
-          return {
-            success: false,
-            error: 'No network connection. Please check your internet and try again.',
-          };
-        }
-
-        console.log(`Update measure data attempt ${attempt}`);
-        
-        // First, get the CSRF token
-        const csrfToken = await this.getCSRFToken();
-        
-        if (!csrfToken) {
-          return {
-            success: false,
-            error: 'Unable to get security token. Please refresh and try again.',
-          };
-        }
-
-        const formData = new FormData();
-        formData.append('stakeholder_variable', measureData.stakeholder_variable_id.toString());
-        formData.append('value', measureData.value);
-        formData.append('measurement_date', measureData.measurement_date);
-        formData.append('csrfmiddlewaretoken', csrfToken);
-        
-        if (measureData.file_description) {
-          formData.append('file_description', measureData.file_description);
-        }
-
-        // Add photo file if provided
-        if (measureData.photo) {
-          console.log('Uploading photo:', measureData.photo);
-          
-          // Create a proper file object for React Native
-          const photoFile = {
-            uri: measureData.photo.uri,
-            type: measureData.photo.type,
-            name: measureData.photo.name,
-          };
-          
-          // Append the photo file to FormData
-          formData.append('photo_file', photoFile as any);
-        }
-
-        // Add timeout for file uploads (longer timeout for retries)
-        const controller = new AbortController();
-        const timeoutDuration = attempt === 1 ? 60000 : 90000; // 60s first attempt, 90s retry
-        const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
-
-        console.log(`Making request to ${this.baseURL}/update-data/`);
-        const response = await fetch(`${this.baseURL}/update-data/`, {
-          method: 'POST',
-          body: formData,
-          credentials: 'include',
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRFToken': csrfToken,
-            'Referer': this.baseURL,
-          },
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-        console.log(`Response status: ${response.status}`);
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Update successful:', data);
-          return { success: data.success, error: data.error };
-        } else {
-          const data = await response.json();
-          console.log('Update failed:', data);
-          return { success: false, error: data.error || 'Failed to update measure data' };
-        }
-      } catch (error) {
-        lastError = error;
-        console.error(`Update measure data error (attempt ${attempt}):`, error);
-        
-        // Check network before retrying
-        const networkState = await NetInfo.fetch();
-        const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
-        
-        if (!isOnline) {
-          console.log('No network connection, stopping retries');
-          return {
-            success: false,
-            error: 'Network error. Please check your connection and try again.',
-          };
-        }
-        
-        // Wait before retrying (only if online)
-        console.log(`Retrying in 2 seconds...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        continue;
+    try {
+      // Check network status before attempting
+      const networkState = await NetInfo.fetch();
+      const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+      
+      if (!isOnline) {
+        console.log('No network connection');
+        return {
+          success: false,
+          error: 'No network connection. Please check your internet and try again.',
+        };
       }
+
+      console.log('Attempting to send measure data');
+      
+      // First, get the CSRF token
+      const csrfToken = await this.getCSRFToken();
+      
+      if (!csrfToken) {
+        return {
+          success: false,
+          error: 'Unable to get security token. Please refresh and try again.',
+        };
+      }
+
+      const formData = new FormData();
+      formData.append('stakeholder_variable', measureData.stakeholder_variable_id.toString());
+      formData.append('value', measureData.value);
+      formData.append('measurement_date', measureData.measurement_date);
+      formData.append('csrfmiddlewaretoken', csrfToken);
+      
+      if (measureData.file_description) {
+        formData.append('file_description', measureData.file_description);
+      }
+
+      // Add photo file if provided
+      if (measureData.photo) {
+        console.log('Uploading photo:', measureData.photo);
+        
+        // Create a proper file object for React Native
+        const photoFile = {
+          uri: measureData.photo.uri,
+          type: measureData.photo.type,
+          name: measureData.photo.name,
+        };
+        
+        // Append the photo file to FormData
+        formData.append('photo_file', photoFile as any);
+      }
+
+      // Very short timeout for fast fail - data already saved locally
+      const controller = new AbortController();
+      const timeoutDuration = 5000; // 5 seconds - fail fast and queue
+      const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+      console.log(`Making request to ${this.baseURL}/update-data/`);
+      const response = await fetch(`${this.baseURL}/update-data/`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken,
+          'Referer': this.baseURL,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      console.log(`Response status: ${response.status}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Update successful:', data);
+        return { success: data.success, error: data.error };
+      } else {
+        const data = await response.json();
+        console.log('Update failed:', data);
+        return { success: false, error: data.error || 'Failed to update measure data' };
+      }
+    } catch (error) {
+      console.error('Update measure data error:', error);
+      
+      // Return error immediately - no retries here, background queue will handle it
+      if (error instanceof Error && error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Request timeout. Will retry in background.',
+        };
+      }
+      
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error. Will retry in background.',
+      };
     }
-    
-    if (lastError && lastError.name === 'AbortError') {
-      return { success: false, error: 'Upload timeout. The image may be too large. Please try with a smaller image.' };
-    }
-    
-    if (lastError && lastError.message && lastError.message.includes('Network request failed')) {
-      return { success: false, error: 'Network error. Please check your connection and try again.' };
-    }
-    
-    if (lastError && lastError.message && lastError.message.includes('fetch')) {
-      return { success: false, error: 'Connection error. Please check your internet connection and try again.' };
-    }
-    
-    // Handle specific network errors
-    if (lastError && lastError.message && (lastError.message.includes('timeout') || lastError.message.includes('TIMEOUT'))) {
-      return { success: false, error: 'Request timeout. Please try again with a smaller image.' };
-    }
-    
-    return { success: false, error: 'Network error. Please check your connection and try again.' };
   }
 
   // Get available report types
