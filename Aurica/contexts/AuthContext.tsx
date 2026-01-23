@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import NetInfo from '@react-native-community/netinfo';
+import * as SecureStore from 'expo-secure-store';
+import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { apiService, LoginCredentials } from '../services/api';
 import { offlineStorageService } from '../services/offlineStorage';
 
@@ -214,6 +214,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           return { success: true };
         } else {
+          // Check if error is network-related (bad connection, timeout, etc.)
+          const isNetworkError = result.error && (
+            result.error.includes('Network') ||
+            result.error.includes('network') ||
+            result.error.includes('timeout') ||
+            result.error.includes('Unable to get security token') ||
+            result.error.includes('connection') ||
+            result.error.includes('Connection')
+          );
+          
+          // If network error, try offline login fallback
+          if (isNetworkError) {
+            console.log('Network error during login, trying offline fallback...');
+            const storedUsername = await SecureStore.getItemAsync(USERNAME_KEY);
+            const storedPassword = await SecureStore.getItemAsync(CREDENTIALS_KEY);
+            
+            if (storedUsername === credentials.username && storedPassword === credentials.password) {
+              // Credentials match stored ones, allow offline login
+              setIsAuthenticated(true);
+              await storeAuthState(true);
+              return { success: true };
+            }
+          }
+          
           return { success: false, error: result.error || 'Login failed' };
         }
       } else {

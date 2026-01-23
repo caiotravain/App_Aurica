@@ -72,29 +72,6 @@ export const PendingUpdatesModal: React.FC<PendingUpdatesModalProps> = ({ visibl
     }
   };
 
-  const handleClearAll = () => {
-    Alert.alert(
-      'Confirmar',
-      'Tem certeza que deseja remover todas as atualizações pendentes? Esta ação não pode ser desfeita.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Remover',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await offlineQueueManager.clearAllPending();
-              await loadPendingUpdates();
-              Alert.alert('Sucesso', 'Todas as atualizações pendentes foram removidas');
-            } catch (error) {
-              console.error('Failed to clear pending updates:', error);
-              Alert.alert('Erro', 'Falha ao remover atualizações pendentes');
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -138,15 +115,6 @@ export const PendingUpdatesModal: React.FC<PendingUpdatesModalProps> = ({ visibl
               </Text>
             )}
           </TouchableOpacity>
-
-          {pendingUpdates.length > 0 && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.clearButton]}
-              onPress={handleClearAll}
-            >
-              <Text style={styles.actionButtonText}>Limpar Tudo</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         {isLoading ? (
@@ -266,9 +234,6 @@ const styles = StyleSheet.create({
   actionButtonDisabled: {
     backgroundColor: '#95a5a6',
     opacity: 0.6,
-  },
-  clearButton: {
-    backgroundColor: '#e74c3c',
   },
   actionButtonText: {
     color: '#fff',

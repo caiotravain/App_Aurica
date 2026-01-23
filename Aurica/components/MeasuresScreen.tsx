@@ -56,19 +56,24 @@ export const MeasuresScreen: React.FC = () => {
       setStakeholders(cached);
       setFilteredStakeholders(cached);
       
-      // Update with fresh data when available (background)
-      fresh.then(freshData => {
+      // Wait for fresh data and update, or show error if both fail
+      try {
+        const freshData = await fresh;
         if (freshData.length > 0 || cached.length === 0) {
           setStakeholders(freshData);
           setFilteredStakeholders(freshData);
         }
-      }).catch(err => {
-        console.error('Error updating with fresh stakeholders:', err);
-      });
-      
-      if (cached.length === 0 && isOnline) {
-        // Only show alert if we're online and got no cached data
-        Alert.alert('Erro', 'Falha ao carregar stakeholders');
+        
+        // Only show error if both cached and fresh are empty and we're online
+        if (cached.length === 0 && freshData.length === 0 && isOnline) {
+          Alert.alert('Erro', 'Falha ao carregar stakeholders');
+        }
+      } catch (freshError) {
+        console.error('Error updating with fresh stakeholders:', freshError);
+        // Only show error if we have no cached data and we're online
+        if (cached.length === 0 && isOnline) {
+          Alert.alert('Erro', 'Falha ao carregar stakeholders');
+        }
       }
     } catch (error) {
       console.error('Error loading stakeholders:', error);
@@ -104,15 +109,6 @@ export const MeasuresScreen: React.FC = () => {
       // Show cached data immediately
       setVariables(cached);
       
-      // Update with fresh data when available (background)
-      fresh.then((freshData: StakeholderVariable[]) => {
-        if (freshData.length > 0 || cached.length === 0) {
-          setVariables(freshData);
-        }
-      }).catch(err => {
-        console.error('Error updating with fresh variables:', err);
-      });
-      
       // Load pending updates to check for offline-sent variables
       try {
         const updates = await offlineStorageService.getPendingUpdates();
@@ -122,9 +118,23 @@ export const MeasuresScreen: React.FC = () => {
         setPendingUpdates([]);
       }
       
-      if (cached.length === 0 && isOnline) {
-        // Only show alert if we're online and got no cached data
-        Alert.alert('Erro', 'Falha ao carregar variáveis');
+      // Wait for fresh data and update, or show error if both fail
+      try {
+        const freshData = await fresh;
+        if (freshData.length > 0 || cached.length === 0) {
+          setVariables(freshData);
+        }
+        
+        // Only show error if both cached and fresh are empty and we're online
+        if (cached.length === 0 && freshData.length === 0 && isOnline) {
+          Alert.alert('Erro', 'Falha ao carregar variáveis');
+        }
+      } catch (freshError) {
+        console.error('Error updating with fresh variables:', freshError);
+        // Only show error if we have no cached data and we're online
+        if (cached.length === 0 && isOnline) {
+          Alert.alert('Erro', 'Falha ao carregar variáveis');
+        }
       }
     } catch (error) {
       console.error('Error loading variables:', error);

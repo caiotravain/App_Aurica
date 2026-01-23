@@ -170,7 +170,7 @@ class ApiService {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.error('CSRF token fetch timeout (5s)');
+        console.error('CSRF token fetch timeout (20s)');
         return null;
       }
       console.error('Error getting CSRF token:', error);
@@ -190,7 +190,7 @@ class ApiService {
         console.log('Failed to get CSRF token');
         return {
           success: false,
-          error: 'Unable to get security token. Please refresh and try again.',
+          error: 'Network error: Unable to get security token. Please check your connection and try again.',
         };
       }
 
@@ -204,6 +204,10 @@ class ApiService {
 
       console.log('Sending login request to:', `${this.baseURL}/login/`);
 
+      // Add timeout to login request (20 seconds)
+      const loginController = new AbortController();
+      const loginTimeoutId = setTimeout(() => loginController.abort(), 20000);
+
       const response = await fetch(`${this.baseURL}/login/`, {
         method: 'POST',
         body: formData,
@@ -215,7 +219,10 @@ class ApiService {
           'User-Agent': 'Mozilla/5.0 (compatible; ReactNative/1.0)',
           'Referer': this.baseURL,
         },
+        signal: loginController.signal,
       });
+
+      clearTimeout(loginTimeoutId);
 
       console.log('Login response status:', response.status);
       console.log('Login response headers:', Object.fromEntries(response.headers.entries()));
@@ -294,6 +301,14 @@ class ApiService {
       };
     } catch (error) {
       console.error('Login error:', error);
+      
+      if (error instanceof Error && error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Network error: Login request timeout. Please check your connection.',
+        };
+      }
+      
       return {
         success: false,
         error: 'Network error. Please check your connection.',

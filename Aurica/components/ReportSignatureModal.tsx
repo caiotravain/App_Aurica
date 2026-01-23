@@ -22,6 +22,8 @@ import { SignatureCapture, SignatureCaptureRef } from './SignatureCapture';
 import { signatureStorageService } from '../services/signatureStorage';
 import { formatCpf, validateCpf, getCpfValidationError, cleanCpf } from '../utils/cpfValidation';
 import { offlineStorageService } from '../services/offlineStorage';
+import { generateDesviosReportFromOfflineData } from '../services/offlineDesviosReportService';
+import * as Sharing from 'expo-sharing';
 
 interface ReportSignatureModalProps {
   visible: boolean;
@@ -459,7 +461,11 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
       }
     }
 
-    if (!isOnline) {
+    // Check if this is a desvios report - can be generated offline
+    const isDesviosReport = selectedReportType === 'desvios';
+
+    // For non-desvios reports, require online connection
+    if (!isDesviosReport && !isOnline) {
       Alert.alert(
         'Sem Conexão',
         'É necessário estar online para gerar e assinar o relatório.'
@@ -487,6 +493,73 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
         }
       }
 
+      // Generate desvios report offline
+      if (isDesviosReport) {
+        try {
+          console.log('Starting offline desvios report generation...');
+          
+          // Check signature sizes and warn if too large
+          const responsavelSigSize = finalSignature.length;
+          const usuarioSigSize = finalUserSignature.length;
+          const totalSigSize = responsavelSigSize + usuarioSigSize;
+          
+          if (totalSigSize > 1000 * 1024) { // More than 1MB total
+            console.warn(`Large signature images detected (${Math.round(totalSigSize / 1024)}KB). PDF generation may be slow.`);
+          }
+
+          const { uri, filename } = await generateDesviosReportFromOfflineData(
+            stakeholder.id,
+            responsavelNome.trim(),
+            responsavelCpf.trim() ? cleanCpf(responsavelCpf) : undefined,
+            undefined, // usuarioNome - could be added if available
+            finalSignature,
+            finalUserSignature
+          );
+
+          console.log('PDF generated successfully, attempting to share...');
+
+          // Share the PDF
+          const isAvailable = await Sharing.isAvailableAsync();
+          if (isAvailable) {
+            await Sharing.shareAsync(uri, {
+              mimeType: 'application/pdf',
+              dialogTitle: 'Compartilhar Relatório de Desvios',
+            });
+          }
+
+          Alert.alert(
+            'Sucesso',
+            'Relatório de desvios gerado com sucesso! O PDF foi salvo e está disponível para compartilhamento.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  onClose();
+                },
+              },
+            ]
+          );
+        } catch (error) {
+          console.error('Error generating offline desvios report:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+          
+          // Provide more helpful error messages
+          let userMessage = `Falha ao gerar relatório de desvios: ${errorMessage}`;
+          
+          if (errorMessage.includes('timeout')) {
+            userMessage = 'A geração do PDF está demorando muito. Isso pode acontecer se as imagens de assinatura forem muito grandes. Tente novamente ou use assinaturas menores.';
+          } else if (errorMessage.includes('signature') || errorMessage.includes('image')) {
+            userMessage = 'Erro ao processar as assinaturas. Verifique se as imagens não são muito grandes e tente novamente.';
+          }
+          
+          Alert.alert('Erro', userMessage);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // For other report types, use server-side generation
       const signData: SignReportData = {
         company: stakeholder.company.id,
         stakeholder: stakeholder.id,
@@ -1101,7 +1174,7 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
                 <TouchableOpacity
                   style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
                   onPress={handleSubmit}
-                  disabled={isLoading || !isOnline || !selectedReportType}
+                  disabled={isLoading || (!isOnline && selectedReportType !== 'desvios') || !selectedReportType}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#fff" />
