@@ -12,6 +12,7 @@ import {
   Image,
   Dimensions,
   Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -194,13 +195,15 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
 
   const handlePickSignature = async () => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permissão Necessária',
-          'Precisamos de permissão para acessar a galeria para selecionar a assinatura.'
-        );
-        return;
+      if (Platform.OS !== 'android') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permissão Necessária',
+            'Precisamos de permissão para acessar a galeria para selecionar a assinatura.'
+          );
+          return;
+        }
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -291,13 +294,15 @@ export const ReportSignatureModal: React.FC<ReportSignatureModalProps> = ({
 
   const handlePickUserSignature = async () => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permissão Necessária',
-          'Precisamos de permissão para acessar a galeria para selecionar a assinatura.'
-        );
-        return;
+      if (Platform.OS !== 'android') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permissão Necessária',
+            'Precisamos de permissão para acessar a galeria para selecionar a assinatura.'
+          );
+          return;
+        }
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({

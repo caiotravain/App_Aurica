@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -27,7 +27,7 @@ export const LoginScreen: React.FC = () => {
     const result = await login({ username: username.trim(), password });
     
     if (!result.success) {
-      Alert.alert('Login Failed', result.error || 'Invalid credentials');
+      Alert.alert('Falha ao fazer login', result.error || 'Credenciais inválidas');
     }
   };
 

@@ -8,6 +8,7 @@ import {
   Image,
   Modal,
   Dimensions,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,15 +28,13 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
 
-  const requestPermissions = async () => {
+  const requestCameraPermission = async () => {
     try {
-      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
-      const { status: mediaLibraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (cameraStatus !== 'granted' || mediaLibraryStatus !== 'granted') {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
         Alert.alert(
-          'Permissões Necessárias',
-          'Precisamos de permissão para acessar a câmera e galeria para adicionar fotos às medidas.',
+          'Permissão Necessária',
+          'Precisamos de permissão para acessar a câmera para tirar fotos das medidas.',
           [{ text: 'OK' }]
         );
         return false;
@@ -52,8 +51,26 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
     }
   };
 
+  const requestGalleryPermission = async () => {
+    if (Platform.OS === 'android') return true;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão Necessária',
+          'Precisamos de permissão para acessar a galeria para adicionar fotos às medidas.',
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const takePhoto = async () => {
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestCameraPermission();
     if (!hasPermission) return;
 
     try {
@@ -96,7 +113,7 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
   };
 
   const pickFromGallery = async () => {
-    const hasPermission = await requestPermissions();
+    const hasPermission = await requestGalleryPermission();
     if (!hasPermission) return;
 
     try {
