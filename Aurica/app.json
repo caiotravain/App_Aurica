@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.caiotravain.auricaapp",
+      "package": "com.caiotravain.Aurica",
       "permissions": [
         "android.permission.CAMERA"
       ]
