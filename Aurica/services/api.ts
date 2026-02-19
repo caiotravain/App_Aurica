@@ -519,6 +519,38 @@ class ApiService {
     }
   }
 
+  /**
+   * Sync all stakeholders and their variables from the server and update local cache.
+   * Call this when the user taps the sync button to refresh all data.
+   */
+  async syncAllStakeholdersAndVariables(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const networkState = await NetInfo.fetch();
+      const isOnline = networkState.isConnected && networkState.isInternetReachable === true;
+      if (!isOnline) {
+        return { success: false, error: 'Sem conexão. Conecte-se à internet para sincronizar.' };
+      }
+
+      const { fresh: stakeholdersPromise } = await this.getStakeholders();
+      const stakeholders = await stakeholdersPromise;
+      if (!stakeholders.length) {
+        return { success: true };
+      }
+
+      for (const stakeholder of stakeholders) {
+        const { fresh: variablesPromise } = await this.getStakeholderVariables(stakeholder.id);
+        await variablesPromise;
+      }
+
+      console.log(`Synced ${stakeholders.length} stakeholders and their variables`);
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao sincronizar';
+      console.error('syncAllStakeholdersAndVariables error:', error);
+      return { success: false, error: message };
+    }
+  }
+
   // Update measure data for a stakeholder variable with offline support
   // Always queues immediately and returns - background processor handles all syncing
   async updateMeasureData(measureData: MeasureData, isOnline: boolean = true): Promise<{ success: boolean; error?: string; queued?: boolean }> {

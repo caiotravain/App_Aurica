@@ -21,6 +21,9 @@
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "cache": {
+        "key": "com.caiotravain.Aurica-v1"
       }
     }
   },

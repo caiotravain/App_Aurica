@@ -40,6 +40,7 @@ export const MeasuresScreen: React.FC = () => {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [selectedMaterialThemes, setSelectedMaterialThemes] = useState<Set<string>>(new Set());
   const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -422,6 +423,34 @@ export const MeasuresScreen: React.FC = () => {
     setIsRefreshing(false);
   };
 
+  const handleSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const result = await apiService.syncAllStakeholdersAndVariables();
+      if (result.success) {
+        await loadStakeholders();
+        if (selectedStakeholder) {
+          await loadVariables(selectedStakeholder.id);
+        }
+        try {
+          const updates = await offlineStorageService.getPendingUpdates();
+          setPendingUpdates(updates);
+        } catch (e) {
+          console.error('Error loading pending updates:', e);
+        }
+        Alert.alert('Sincronizado', 'Parceiros e variáveis foram atualizados.');
+      } else {
+        Alert.alert('Erro ao sincronizar', result.error ?? 'Tente novamente.');
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      Alert.alert('Erro', 'Falha ao sincronizar. Tente novamente.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Show loading screen while checking authentication
   if (authLoading) {
     return (
@@ -478,20 +507,33 @@ export const MeasuresScreen: React.FC = () => {
       <View style={styles.headerSection}>
         <View style={styles.headerTop}>
           <Text style={styles.mainTitleNew}>Parceiros</Text>
-          <View style={styles.profileMenuContainer}>
+          <View style={styles.headerRightActions}>
             <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => setShowProfileMenu(!showProfileMenu)}
+              style={styles.syncButton}
+              onPress={handleSync}
+              disabled={isSyncing}
               activeOpacity={0.7}
             >
-              <Ionicons name="person-circle-outline" size={28} color="#95A5A6" />
-              <Ionicons 
-                name={showProfileMenu ? "chevron-up" : "chevron-down"} 
-                size={16} 
-                color="#95A5A6" 
-                style={styles.chevronDown} 
-              />
+              {isSyncing ? (
+                <ActivityIndicator size="small" color="#2d6122" />
+              ) : (
+                <Ionicons name="sync" size={26} color="#2d6122" />
+              )}
             </TouchableOpacity>
+            <View style={styles.profileMenuContainer}>
+              <TouchableOpacity
+                style={styles.profileButton}
+                onPress={() => setShowProfileMenu(!showProfileMenu)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-circle-outline" size={28} color="#95A5A6" />
+                <Ionicons 
+                  name={showProfileMenu ? "chevron-up" : "chevron-down"} 
+                  size={16} 
+                  color="#95A5A6" 
+                  style={styles.chevronDown} 
+                />
+              </TouchableOpacity>
             {showProfileMenu && (
               <View style={styles.profileMenu}>
                 <TouchableOpacity
@@ -507,6 +549,7 @@ export const MeasuresScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             )}
+            </View>
           </View>
         </View>
 
@@ -952,6 +995,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
     minHeight: 50, // Match the height of Variáveis header (paddingTop comes from headerSection)
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncButton: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 40,
   },
   profileMenuContainer: {
     position: 'relative',
