@@ -12,8 +12,10 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Este app precisa acessar a câmera para tirar fotos das medidas.",
-        "NSPhotoLibraryUsageDescription": "Este app precisa acessar a galeria para selecionar fotos das medidas."
-      }
+        "NSPhotoLibraryUsageDescription": "Este app precisa acessar a galeria para selecionar fotos das medidas.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.caiotravain.Aurica"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +26,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.caiotravain.Aurica",
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
