@@ -489,9 +489,7 @@ export const MeasuresScreen: React.FC = () => {
             {item.name}
           </Text>
         )}
-        <View style={styles.tagContainer}>
-          <Text style={styles.tagText}>Scala</Text>
-        </View>
+
       </View>
 
       {/* Action */}
